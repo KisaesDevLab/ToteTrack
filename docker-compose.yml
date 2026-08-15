@@ -1,0 +1,61 @@
+# Production deployment: two containers, two named volumes.
+# 1. cp .env.example .env  →  set POSTGRES_PASSWORD, SESSION_SECRET, PUBLIC_URL (and ANTHROPIC_API_KEY)
+# 2. docker compose up -d --build
+# 3. point a Cloudflare Tunnel at http://localhost:3000 (see README)
+services:
+  app:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+    image: ${TOTETRACK_IMAGE:-totetrack:local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://tote:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/totetrack
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      PHOTO_DIR: /data/photos
+      PORT: '3000'
+    ports:
+      # Bind to loopback only; the Cloudflare Tunnel (cloudflared) runs on the same host.
+      - '${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000'
+    volumes:
+      - photos:/data/photos
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tote
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: totetrack
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tote -d totetrack']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  photos:

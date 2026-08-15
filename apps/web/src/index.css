@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      'Helvetica Neue',
+      Arial,
+      sans-serif;
+  }
+  body {
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+  }
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid #b45309;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition
+      active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none select-none min-h-[44px];
+  }
+  .btn-primary {
+    @apply btn bg-ink text-paper hover:bg-ink-soft;
+  }
+  .btn-accent {
+    @apply btn bg-accent text-white hover:bg-accent-deep;
+  }
+  .btn-secondary {
+    @apply btn bg-paper-raised border border-line text-ink hover:bg-paper-sunk shadow-card;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink-soft hover:bg-paper-sunk;
+  }
+  .btn-danger {
+    @apply btn bg-transparent text-bad border border-bad/30 hover:bg-red-50;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs min-h-[36px] rounded-lg;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-paper-raised px-3.5 py-2.5 text-base text-ink placeholder:text-ink-mute
+      focus:border-accent focus:ring-2 focus:ring-accent/20 min-h-[44px];
+  }
+  .card {
+    @apply rounded-2xl bg-paper-raised border border-line shadow-card;
+  }
+  .label-chip {
+    @apply inline-flex items-center rounded-md bg-ink text-paper font-mono font-semibold tracking-wide px-2 py-0.5 text-sm;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide;
+  }
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-paper-sunk;
+  }
+  .safe-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+  }
+}
+
+.embla {
+  overflow: hidden;
+}
+.embla__container {
+  display: flex;
+  touch-action: pan-y pinch-zoom;
+}
+.embla__slide {
+  flex: 0 0 100%;
+  min-width: 0;
+}

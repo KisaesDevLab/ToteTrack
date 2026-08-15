@@ -1,0 +1,6 @@
+node_modules
+dist
+pnpm-lock.yaml
+apps/server/drizzle/meta
+data
+TOTETRACK-BUILD-PLAN.md

@@ -1,0 +1,21 @@
+# Local development database only. Production uses docker-compose.yml.
+services:
+  postgres:
+    image: postgres:16
+    container_name: totetrack-dev-postgres
+    environment:
+      POSTGRES_USER: tote
+      POSTGRES_PASSWORD: tote
+      POSTGRES_DB: totetrack
+    ports:
+      - '5442:5432'
+    volumes:
+      - totetrack_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tote -d totetrack']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  totetrack_dev_pgdata:
