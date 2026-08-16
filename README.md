@@ -11,7 +11,7 @@ Self-hosted home inventory for storage totes. Give every box a printed QR label 
 ```bash
 pnpm install
 pnpm db:dev            # starts postgres on localhost:5442 (docker-compose.dev.yml)
-cp .env.example .env   # DATABASE_URL already points at the dev DB; set SESSION_SECRET
+cp .env.example .env   # DATABASE_URL already points at the dev DB (everything else optional)
 pnpm db:migrate        # apply migrations (also runs automatically on server boot)
 pnpm db:seed           # optional sample data (2 series, 3 locations, 3 boxes)
 pnpm dev               # API on :3000, web on :5173 (proxies /api)
@@ -24,36 +24,26 @@ Other scripts: `pnpm test` (API integration tests against a `totetrack_test` DB 
 ## Production deployment
 
 ```bash
-cp .env.example .env
-#   set POSTGRES_PASSWORD, SESSION_SECRET (openssl rand -hex 32),
-#   PUBLIC_URL=https://totes.example.com  (used inside QR codes)
-#   ANTHROPIC_API_KEY=sk-ant-...           (optional)
 docker compose up -d --build
 ```
 
-The `app` container applies migrations on start, serves the built web app and the API on `127.0.0.1:3000`, and stores photos on the `photos` volume; Postgres data lives on `pgdata`. Health: `curl localhost:3000/api/health`.
+That's it — no `.env` needed. Open http://localhost:3000 (or the tunnel hostname), set the household PIN, then configure everything else from **Settings**:
 
-### Cloudflare Tunnel
+- **AI photo analysis** — paste your Anthropic API key, pick the model, tune the prompt, toggle auto-analyze
+- **Remote access (Cloudflare Tunnel)** — paste a tunnel token; the app runs the connector itself and shows live status
+- **Public address** — auto-detected from the address you're using; pin it if you print labels from several addresses
+- **Labels**, **series**, **locations**, **PIN**, **exports**
 
-Run `cloudflared` on the same host and map a hostname to the app:
+The `app` container applies migrations on start, generates and stores a session secret on first boot, serves the built web app and the API on `127.0.0.1:3000`, and stores photos on the `photos` volume; Postgres data lives on `pgdata`. Health: `curl localhost:3000/api/health`. Environment variables (see `.env.example`) are optional overrides only.
 
-```yaml
-# ~/.cloudflared/config.yml
-tunnel: <TUNNEL-ID>
-credentials-file: /home/you/.cloudflared/<TUNNEL-ID>.json
-ingress:
-  - hostname: totes.example.com
-    service: http://localhost:3000
-  - service: http_status:404
-```
+### Cloudflare Tunnel (from the Settings page)
 
-```bash
-cloudflared tunnel create totetrack
-cloudflared tunnel route dns totetrack totes.example.com
-cloudflared tunnel run totetrack        # or install as a service
-```
+1. Cloudflare Zero Trust → **Networks → Tunnels → Create a tunnel** (Cloudflared).
+2. Add a **Public Hostname** (e.g. `totes.example.com`), service type **HTTP**, URL **`localhost:3000`** — the connector runs inside the app container.
+3. Copy the connector token from the install command and paste it into **Settings → Remote access**. The status pill turns **Connected** within a few seconds; the log tail is available for troubleshooting.
+4. Open the app on the new hostname; QR codes will use it automatically (`https://totes.example.com/b/<label>`). Scanning a label on a logged-out phone shows the PIN screen and then opens the box.
 
-Set `PUBLIC_URL=https://totes.example.com` so printed QR codes deep-link to `https://totes.example.com/b/<label>`. Scanning a label on a logged-out phone shows the PIN screen and then opens the box. The login rate limit keys on `CF-Connecting-IP`; `TRUST_PROXY=1` (default) makes Express honour the tunnel's forwarded headers. For extra hardening put Cloudflare Access in front of the hostname (out of scope here).
+The login rate limit keys on `CF-Connecting-IP`; `TRUST_PROXY=1` (default) makes Express honour the forwarded headers, and session cookies are marked `Secure` whenever a request arrives over https. For extra hardening put Cloudflare Access in front of the hostname (out of scope here). You can still run `cloudflared` yourself instead — set `CLOUDFLARE_TUNNEL_TOKEN` in the environment (it overrides the Settings value) or point an external connector at `http://localhost:3000`.
 
 ### Backups
 
@@ -70,23 +60,25 @@ Restore with `pg_restore -U tote -d totetrack --clean` and by untarring back int
 
 ### What's configurable where
 
-**Settings page (no restart):** household PIN, Anthropic API key (unless provided by env), AI model, auto-analyze on/off, the AI instructions/prompt, public address used in QR codes, default label sheet, series and locations.
-**Environment (`.env`, restart):** database, session secret, port, photo directory, proxy trust, log level — plus optional defaults for the API key, model and public URL.
+**Settings page (everything a household needs, no restart):** PIN, Anthropic API key, model, auto-analyze, AI prompt, Cloudflare tunnel token (with live status), public address (auto-detected by default), default label sheet, series, locations.
 
-### Environment variables
+**Environment (optional overrides / plumbing):**
 
-| Variable                | Default                 | Notes                                                                                             |
-| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`          | —                       | `postgres://user:pass@host:5432/db` (compose builds it from `POSTGRES_PASSWORD`)                  |
-| `SESSION_SECRET`        | —                       | ≥16 chars, use 32+ random bytes; changing it logs everyone out                                    |
-| `PUBLIC_URL`            | `http://localhost:5173` | Default origin for QR payloads (Settings → Public address overrides it); https ⇒ `Secure` cookies |
-| `ANTHROPIC_API_KEY`     | unset                   | Optional — a key can also be entered in Settings; the env var wins if both are set                |
-| `ANTHROPIC_MODEL`       | `claude-sonnet-5`       | Also editable in Settings                                                                         |
-| `PHOTO_DIR`             | `./data/photos`         | `/data/photos` in Docker                                                                          |
-| `PORT`                  | `3000`                  |                                                                                                   |
-| `TRUST_PROXY`           | `1`                     | Proxy hops in front of the app                                                                    |
-| `LOG_LEVEL`             | `info`                  | pino level                                                                                        |
-| `APP_PORT` / `APP_BIND` | `3000` / `127.0.0.1`    | Host binding (compose only)                                                                       |
+| Variable                  | Default                      | Notes                                                                |
+| ------------------------- | ---------------------------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`            | compose builds it            | `postgres://user:pass@host:5432/db`                                  |
+| `POSTGRES_PASSWORD`       | `totetrack`                  | compose only; DB is not exposed outside the compose network          |
+| `SESSION_SECRET`          | auto-generated & stored      | set to control it yourself                                           |
+| `ANTHROPIC_API_KEY`       | unset                        | overrides the key entered in Settings                                |
+| `ANTHROPIC_MODEL`         | `claude-sonnet-5`            | default model (Settings overrides)                                   |
+| `CLOUDFLARE_TUNNEL_TOKEN` | unset                        | overrides the token entered in Settings                              |
+| `CLOUDFLARED_BIN`         | `/usr/local/bin/cloudflared` | connector binary path (bundled in the image; set for local dev)      |
+| `PUBLIC_URL`              | unset                        | fixed QR origin (Settings overrides; else auto-detected per request) |
+| `PHOTO_DIR`               | `./data/photos`              | `/data/photos` in Docker                                             |
+| `PORT`                    | `3000`                       |                                                                      |
+| `TRUST_PROXY`             | `1`                          | Proxy hops in front of the app                                       |
+| `LOG_LEVEL`               | `info`                       | pino level                                                           |
+| `APP_PORT` / `APP_BIND`   | `3000` / `127.0.0.1`         | Host binding (compose only)                                          |
 
 ## Labels
 

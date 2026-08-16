@@ -55,7 +55,7 @@ export function labelsRouter(db: Db, env: Env): Router {
         templateId,
         startOffset: input.startOffset,
         includeName: input.includeName,
-        publicUrl: await effectivePublicUrl(db, env),
+        publicUrl: (await effectivePublicUrl(db, env, req)).url,
       });
       if (input.markPrinted)
         await markBoxesPrinted(

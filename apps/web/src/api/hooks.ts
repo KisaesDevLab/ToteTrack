@@ -105,7 +105,17 @@ export function useSettings() {
   return useQuery({
     queryKey: keys.settings,
     queryFn: () => get<AppSettings>('/api/settings'),
-    staleTime: 60_000,
+    staleTime: 30_000,
+    // Poll while the tunnel connector is coming up so the status pill turns green on its own.
+    refetchInterval: (q) => (q.state.data?.tunnel.state === 'starting' ? 2_000 : false),
+  });
+}
+
+export function useRestartTunnel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => post<AppSettings>('/api/settings/tunnel/restart'),
+    onSuccess: (data) => qc.setQueryData(keys.settings, data),
   });
 }
 

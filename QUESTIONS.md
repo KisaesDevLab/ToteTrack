@@ -24,6 +24,9 @@ Open questions and judgment calls made while building autonomously. Each entry s
 16. **Settings vs env precedence** — Anthropic API key: env var wins over the Settings value (secret managed by the operator); Public URL and AI prompt: the Settings value overrides the env/built-in default. The `Secure` cookie flag still follows the env `PUBLIC_URL` (needs restart) since it must be known before the DB is consulted.
 17. **API key at rest** — stored as plain text in the `settings` table (same trust level as the DB itself); it is never returned by the API (only a `…last4` hint). If you want it encrypted at rest, that needs a server-side secret in env — say so and I'll add it.
 
+18. **"All configuration via UI"** — implemented by (a) bundling `cloudflared` into the app image and having the app supervise it from a token entered in Settings (status + log tail in the UI), (b) auto-generating the session secret on first boot, (c) auto-detecting the public URL from the request when not pinned, (d) deciding `Secure` cookies per request. `docker compose up -d` now needs no `.env`. Remaining env-only values are pure plumbing (`DATABASE_URL`, `PORT`, `PHOTO_DIR`, `TRUST_PROXY`, `LOG_LEVEL`) with sane defaults, plus optional overrides. Postgres password defaults to `totetrack` inside the compose network — override `POSTGRES_PASSWORD` if you ever publish the DB port.
+19. **Tunnel connector = HTTP → `localhost:3000`** in the Cloudflare dashboard (the connector runs inside the app container). Verified locally that the bundled binary runs and reports token errors; a real tunnel needs your token to confirm end-to-end.
+
 ## Not verified (needs a human / real hardware)
 
 - **4×3 labels on your sheet-feed printer** — PDF geometry rendered and inspected (see `label-4x3` / `label-3x4`), but not printed on the actual device.
@@ -31,9 +34,9 @@ Open questions and judgment calls made while building autonomously. Each entry s
 - **Real Anthropic API call** — no `ANTHROPIC_API_KEY` was available in this environment; the pipeline is covered by tests with a stubbed model. First real upload should be checked for prompt quality.
 - **Physical Avery 5163 print alignment** — only the calibration PDF was generated; please print it once at 100% scale.
 - **Lighthouse ≥90 mobile** — not run (no Lighthouse in this environment). Bundle is ~108 kB gzipped JS, images lazy-load, no blocking fonts.
-- **Cloudflare Tunnel end-to-end** — compose stack verified locally on `127.0.0.1:3300`; tunnel config is documented in the README but not exercised.
+- **Cloudflare Tunnel end-to-end** — the app-managed connector was exercised with a bogus token (starts, reports "token is not valid", retries); connecting a real tunnel needs your token pasted in Settings.
 - **HEIC uploads** — sharp's prebuilt libvips includes libheif, but no HEIC sample was available to test.
 
 ## Housekeeping
 
-- Committed to `main` on 2026-08-15 at your request. Answered in the Q&A round: keep both 4×3/3×4 templates, default model `claude-sonnet-5`, photo delete removes derived AI items, PIN change keeps other sessions, keep exact-number create, add combined CSV, no API key yet.
+- Committed to `main` on 2026-08-15 at your request. Later commits: Settings-page config (API key/URL/prompt), then app-managed Cloudflare tunnel + zero-config boot. Answered in the Q&A round: keep both 4×3/3×4 templates, default model `claude-sonnet-5`, photo delete removes derived AI items, PIN change keeps other sessions, keep exact-number create, add combined CSV, no API key yet.

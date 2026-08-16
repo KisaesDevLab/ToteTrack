@@ -21,6 +21,7 @@ import { seriesRouter } from './routes/series.js';
 import { locationsRouter } from './routes/locations.js';
 import { AiService } from './services/ai.js';
 import { createPhotoStorage, type PhotoStorage } from './services/photos.js';
+import { TunnelManager } from './services/tunnel.js';
 
 export const APP_VERSION = process.env.APP_VERSION ?? '0.1.0';
 
@@ -28,6 +29,7 @@ export interface AppDeps {
   db: Db;
   env: Env;
   ai?: AiService;
+  tunnel?: TunnelManager;
   storage?: PhotoStorage;
   /** Directory of the built web app to serve (production). */
   webDist?: string;
@@ -36,6 +38,7 @@ export interface AppDeps {
 export interface App {
   app: Express;
   ai: AiService;
+  tunnel: TunnelManager;
   storage: PhotoStorage;
   pins: PinStore;
 }
@@ -50,6 +53,7 @@ export function createApp(deps: AppDeps): App {
       defaultModel: env.ANTHROPIC_MODEL,
     });
   const pins = new PinStore(db);
+  const tunnel = deps.tunnel ?? new TunnelManager(db, env);
   const authCtx = { env, pins };
 
   const app = express();
@@ -126,7 +130,7 @@ export function createApp(deps: AppDeps): App {
   api.use('/search', searchRouter(db));
   api.use('/labels', labelsRouter(db, env));
   api.use('/export', exportRouter(db));
-  api.use('/settings', settingsRouter(db, env, ai, APP_VERSION));
+  api.use('/settings', settingsRouter(db, env, ai, tunnel, APP_VERSION));
   app.use('/api', api);
 
   app.use('/api', (_req, res) => {
@@ -178,5 +182,5 @@ export function createApp(deps: AppDeps): App {
   };
   app.use(errorHandler);
 
-  return { app, ai, storage, pins };
+  return { app, ai, tunnel, storage, pins };
 }

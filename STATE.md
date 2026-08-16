@@ -1,13 +1,13 @@
 # STATE.md
 
-_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. Q&A answers applied; API key / public URL / AI prompt now editable in Settings (env still supported)._
+_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. All user-facing configuration lives in Settings (AI key/model/prompt, Cloudflare tunnel token with live status, public address, labels, PIN); `docker compose up -d` needs no .env._
 
 ## Where things stand
 
-- **Backend** (`apps/server`): Express 4 + Drizzle/pg, ESM, bundled with tsup. 36 integration tests pass (`pnpm test`, needs the dev postgres from `docker-compose.dev.yml`).
+- **Backend** (`apps/server`): Express 4 + Drizzle/pg, ESM, bundled with tsup. 41 integration tests pass (`pnpm test`, needs the dev postgres from `docker-compose.dev.yml`).
 - **Frontend** (`apps/web`): Vite + React 18 + Tailwind, react-query, react-router; ~108 kB gzipped JS. Verified in headless Chromium at iPhone 13 and desktop widths.
 - **Shared** (`packages/shared`): zod schemas/types consumed by both, imported as TS source (bundled by tsup/Vite — no build step).
-- **Docker**: `Dockerfile` (node:20 build → distroless nonroot runtime) + `docker-compose.yml`. Full stack verified locally on port 3300 and torn down.
+- **Docker**: `Dockerfile` (node:20 build → distroless nonroot runtime, bundles `cloudflared`) + `docker-compose.yml` (zero-config). Full stack verified locally with no .env, including the tunnel supervisor.
 - **Docs**: README (dev/deploy/tunnel/backup/env), PHASES.md (per-phase status), QUESTIONS.md (decisions + unverified items), CLAUDE.md.
 
 ## Known gaps / follow-ups
@@ -20,7 +20,8 @@ _Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-c
 
 ## Smoke-test checklist (phone over the tunnel)
 
-- [ ] Open `https://<host>/` → PIN setup (first run) or login
+- [ ] `docker compose up -d` → open http://localhost:3000 → PIN setup
+- [ ] Settings → Remote access → paste Cloudflare token → pill turns Connected → open `https://<host>/`
 - [ ] **Add** → create box → label chip shows `A-00N`
 - [ ] **Print labels** → select box → Download PDF → prints aligned on Avery 5163 (use calibration page first)
 - [ ] Stick label on tote, scan QR with the phone camera while logged out → PIN → lands on the box

@@ -268,13 +268,25 @@ export const AppSettings = z.object({
   aiSystemPromptDefault: z.string(),
   aiSystemPromptCustom: z.boolean(),
   defaultLabelTemplate: z.string(),
-  /** Effective public origin used in QR codes (Settings value overrides the PUBLIC_URL env default). */
+  /** Effective public origin used in QR codes. */
   publicUrl: z.string(),
-  publicUrlEnv: z.string(),
+  /** settings → PUBLIC_URL env → auto-detected from the request → localhost fallback */
+  publicUrlSource: z.enum(['settings', 'env', 'request', 'default']),
+  publicUrlEnv: z.string().nullable(),
   publicUrlCustom: z.boolean(),
+  tunnel: z.object({
+    tokenSource: z.enum(['env', 'settings', 'none']),
+    binaryAvailable: z.boolean(),
+    state: z.enum(['disabled', 'unavailable', 'starting', 'connected', 'error']),
+    connectedSince: z.string().nullable(),
+    lastError: z.string().nullable(),
+    log: z.array(z.string()),
+    restarts: z.number().int(),
+  }),
   version: z.string(),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
+export type TunnelStatus = AppSettings['tunnel'];
 
 export const PublicUrl = z
   .string()
@@ -293,8 +305,10 @@ export const SettingsUpdateInput = z.object({
   anthropicApiKey: z.string().trim().min(10).max(500).nullable().optional(),
   /** Custom system prompt, or null to reset to the built-in default. */
   aiSystemPrompt: z.string().max(20000).nullable().optional(),
-  /** Custom public origin, or null to fall back to the PUBLIC_URL env value. */
+  /** Custom public origin, or null to fall back to the PUBLIC_URL env value / auto-detection. */
   publicUrl: PublicUrl.nullable().optional(),
+  /** Cloudflare tunnel connector token, or null to remove it (stops the tunnel). */
+  cloudflareTunnelToken: z.string().trim().min(20).max(2000).nullable().optional(),
 });
 export type SettingsUpdateInput = z.infer<typeof SettingsUpdateInput>;
 

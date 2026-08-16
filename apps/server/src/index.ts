@@ -8,6 +8,7 @@ import { runMigrations } from './db/migrate.js';
 import { loadEnv } from './env.js';
 import { logger } from './lib/logger.js';
 import { ensurePhotoDir } from './services/photos.js';
+import { resolveSessionSecret } from './services/settings.js';
 
 async function main() {
   const env = loadEnv();
@@ -15,6 +16,7 @@ async function main() {
 
   logger.info('applying migrations');
   await runMigrations(handle.db);
+  env.SESSION_SECRET = await resolveSessionSecret(handle.db, env.SESSION_SECRET || undefined);
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webDist =
@@ -24,8 +26,14 @@ async function main() {
       fs.existsSync(path.join(p, 'index.html')),
     );
 
-  const { app, ai, storage } = createApp({ db: handle.db, env, webDist });
+  const { app, ai, tunnel, storage } = createApp({ db: handle.db, env, webDist });
   await ensurePhotoDir(storage);
+  const tunnelStatus = await tunnel.apply();
+  if (tunnelStatus.state !== 'disabled')
+    logger.info(
+      { state: tunnelStatus.state, source: tunnelStatus.tokenSource },
+      'cloudflare tunnel',
+    );
 
   const recovered = await ai.recoverPending();
   if (recovered) logger.info({ recovered }, 're-queued pending AI jobs');
@@ -43,8 +51,9 @@ async function main() {
   const shutdown = (signal: string) => {
     logger.info({ signal }, 'shutting down');
     server.close(() => {
-      handle
-        .close()
+      tunnel
+        .stop()
+        .then(() => handle.close())
         .catch(() => undefined)
         .finally(() => process.exit(0));
     });

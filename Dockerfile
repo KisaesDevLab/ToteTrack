@@ -23,9 +23,14 @@ RUN pnpm --filter @totetrack/server deploy --prod /out/server
 # Pre-create the photo directory owned by the runtime user; a fresh named volume inherits it.
 RUN mkdir -p /out/data/photos && chown -R 65532:65532 /out/data
 
+# ---- cloudflare connector binary -------------------------------------------
+# The app supervises `cloudflared` itself (token pasted in Settings), so bundle the static binary.
+FROM cloudflare/cloudflared:latest AS cloudflared
+
 # ---- runtime stage (distroless) --------------------------------------------
 FROM gcr.io/distroless/nodejs20-debian12:nonroot
 WORKDIR /app
+COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 ENV NODE_ENV=production \
     PORT=3000 \
     PHOTO_DIR=/data/photos \

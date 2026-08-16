@@ -32,7 +32,7 @@ export async function truncateAll(handle: DbHandle): Promise<void> {
 }
 
 export async function createTestContext(
-  opts: { ai?: Partial<AiServiceOptions> } = {},
+  opts: { ai?: Partial<AiServiceOptions>; env?: Record<string, string> } = {},
 ): Promise<TestContext> {
   process.env.TOTETRACK_NO_DOTENV = '1';
   const photoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'totetrack-test-'));
@@ -44,6 +44,8 @@ export async function createTestContext(
     PUBLIC_URL: 'https://totes.example.com',
     ANTHROPIC_API_KEY: '',
     LOG_LEVEL: 'silent',
+    CLOUDFLARED_BIN: '/nonexistent/cloudflared',
+    ...opts.env,
   });
   const handle = createDb(TEST_DATABASE_URL);
   await truncateAll(handle);

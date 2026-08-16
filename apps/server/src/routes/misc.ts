@@ -1,12 +1,13 @@
 import { SearchQuery, SettingsUpdateInput, type AppSettings } from '@totetrack/shared';
 import { asc, eq } from 'drizzle-orm';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import type { Db } from '../db/index.js';
 import { boxes, items, locations } from '../db/schema.js';
 import type { Env } from '../env.js';
 import { badRequest } from '../lib/errors.js';
 import { asyncHandler, parseBody, parseQuery } from '../lib/http.js';
 import { DEFAULT_SYSTEM_PROMPT, type AiService } from '../services/ai.js';
+import type { TunnelManager } from '../services/tunnel.js';
 import { boxSummaryColumns } from '../services/boxes.js';
 import { DEFAULT_LABEL_TEMPLATE, LABEL_TEMPLATES } from '../services/labels.js';
 import { searchBoxes } from '../services/search.js';
@@ -33,16 +34,23 @@ export function searchRouter(db: Db): Router {
 
 // --- settings ----------------------------------------------------------------
 
-export function settingsRouter(db: Db, env: Env, ai: AiService, version: string): Router {
+export function settingsRouter(
+  db: Db,
+  env: Env,
+  ai: AiService,
+  tunnel: TunnelManager,
+  version: string,
+): Router {
   const r = Router();
 
-  const read = async (): Promise<AppSettings> => {
+  const read = async (req: Request): Promise<AppSettings> => {
     const s = await getSettings(db);
     const key = await effectiveApiKey(db, env);
     const customPrompt = s[SETTING_KEYS.aiSystemPrompt]?.trim()
       ? s[SETTING_KEYS.aiSystemPrompt]!
       : null;
     const customUrl = s[SETTING_KEYS.publicUrl] ?? null;
+    const pub = await effectivePublicUrl(db, env, req);
     return {
       aiModel: s[SETTING_KEYS.aiModel] ?? env.ANTHROPIC_MODEL,
       aiAutoAnalyze: (s[SETTING_KEYS.aiAutoAnalyze] ?? 'true') === 'true',
@@ -53,17 +61,27 @@ export function settingsRouter(db: Db, env: Env, ai: AiService, version: string)
       aiSystemPromptDefault: DEFAULT_SYSTEM_PROMPT,
       aiSystemPromptCustom: customPrompt !== null,
       defaultLabelTemplate: s[SETTING_KEYS.defaultLabelTemplate] ?? DEFAULT_LABEL_TEMPLATE,
-      publicUrl: await effectivePublicUrl(db, env),
-      publicUrlEnv: env.PUBLIC_URL,
+      publicUrl: pub.url,
+      publicUrlSource: pub.source,
+      publicUrlEnv: env.PUBLIC_URL ?? null,
       publicUrlCustom: customUrl !== null,
+      tunnel: tunnel.status(),
       version,
     };
   };
 
   r.get(
     '/',
-    asyncHandler(async (_req, res) => {
-      res.json(await read());
+    asyncHandler(async (req, res) => {
+      res.json(await read(req));
+    }),
+  );
+
+  r.post(
+    '/tunnel/restart',
+    asyncHandler(async (req, res) => {
+      await tunnel.restart();
+      res.json(await read(req));
     }),
   );
 
@@ -93,7 +111,12 @@ export function settingsRouter(db: Db, env: Env, ai: AiService, version: string)
           throw badRequest('Unknown label template');
         await setSetting(db, SETTING_KEYS.defaultLabelTemplate, input.defaultLabelTemplate);
       }
-      res.json(await read());
+      if (input.cloudflareTunnelToken !== undefined) {
+        if (input.cloudflareTunnelToken === null) await deleteSetting(db, SETTING_KEYS.tunnelToken);
+        else await setSetting(db, SETTING_KEYS.tunnelToken, input.cloudflareTunnelToken);
+        await tunnel.apply();
+      }
+      res.json(await read(req));
     }),
   );
 

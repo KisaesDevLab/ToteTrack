@@ -6,6 +6,7 @@ import {
   useDeleteSeries,
   useLabelTemplates,
   useLogout,
+  useRestartTunnel,
   useSeries,
   useSettings,
   useUpdateSeries,
@@ -27,6 +28,7 @@ export function SettingsPage() {
       )}
       <SeriesSection />
       <AiSection />
+      <TunnelSection />
       <PublicUrlSection />
       <LabelSection />
       <ExportSection onError={(e) => toast.error(errorMessage(e))} />
@@ -344,6 +346,131 @@ function AiSection() {
   );
 }
 
+function TunnelSection() {
+  const settings = useSettings();
+  const update = useUpdateSettings();
+  const restart = useRestartTunnel();
+  const toast = useToast();
+  const [token, setToken] = useState('');
+  const [showLog, setShowLog] = useState(false);
+  const s = settings.data;
+  if (!s) return null;
+  const t = s.tunnel;
+  const onErr = (err: unknown) => toast.error(errorMessage(err));
+
+  const pill =
+    t.state === 'connected'
+      ? { cls: 'bg-green-50 text-good', text: 'Connected' }
+      : t.state === 'starting'
+        ? { cls: 'bg-accent-soft text-accent-deep', text: 'Connecting…' }
+        : t.state === 'error'
+          ? { cls: 'bg-red-50 text-bad', text: 'Error' }
+          : t.state === 'unavailable'
+            ? { cls: 'bg-red-50 text-bad', text: 'Connector missing' }
+            : { cls: 'bg-paper-sunk text-ink-soft', text: 'Off' };
+
+  return (
+    <Section
+      title="Remote access (Cloudflare Tunnel)"
+      hint="Reach ToteTrack from anywhere — and let phone cameras open QR links — without opening ports. The app runs the Cloudflare connector for you."
+    >
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className={`pill ${pill.cls}`}>{pill.text}</span>
+        {t.connectedSince && (
+          <span className="text-xs text-ink-mute">
+            since {new Date(t.connectedSince).toLocaleTimeString()}
+          </span>
+        )}
+        {t.tokenSource === 'env' && (
+          <span className="text-xs text-ink-mute">token from CLOUDFLARE_TUNNEL_TOKEN (env)</span>
+        )}
+        {t.restarts > 0 && <span className="text-xs text-ink-mute">restarts: {t.restarts}</span>}
+      </div>
+      {t.lastError && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-bad">{t.lastError}</p>
+      )}
+
+      <ol className="list-decimal space-y-1 pl-5 text-xs text-ink-mute">
+        <li>
+          In Cloudflare Zero Trust go to <b>Networks → Tunnels → Create a tunnel</b> (Cloudflared).
+        </li>
+        <li>
+          Add a <b>Public Hostname</b> (e.g. totes.example.com) with service type <b>HTTP</b> and
+          URL <span className="font-mono">localhost:3000</span> — the connector runs inside the app.
+        </li>
+        <li>Copy the connector token from the install command and paste it below.</li>
+        <li>
+          Open the app on that hostname once — QR codes pick the address up automatically (or pin it
+          under Public address below).
+        </li>
+      </ol>
+
+      <div className="flex gap-2">
+        <input
+          className="input flex-1 font-mono text-sm"
+          type="password"
+          autoComplete="off"
+          placeholder={t.tokenSource === 'settings' ? 'Paste a new token to replace' : 'eyJhIjoi…'}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          disabled={t.tokenSource === 'env'}
+        />
+        <button
+          className="btn-secondary"
+          disabled={t.tokenSource === 'env' || token.trim().length < 20 || update.isPending}
+          onClick={() =>
+            update.mutate(
+              { cloudflareTunnelToken: token.trim() },
+              {
+                onSuccess: () => {
+                  setToken('');
+                  toast.success('Token saved — starting the tunnel');
+                },
+                onError: onErr,
+              },
+            )
+          }
+        >
+          Save token
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {t.tokenSource !== 'none' && (
+          <button
+            className="btn-secondary btn-sm"
+            disabled={restart.isPending}
+            onClick={() => restart.mutate(undefined, { onError: onErr })}
+          >
+            {restart.isPending ? <Spinner className="h-4 w-4" /> : null} Restart connector
+          </button>
+        )}
+        {t.tokenSource === 'settings' && (
+          <button
+            className="btn-danger btn-sm"
+            disabled={update.isPending}
+            onClick={() => {
+              if (window.confirm('Remove the tunnel token and stop remote access?'))
+                update.mutate({ cloudflareTunnelToken: null }, { onError: onErr });
+            }}
+          >
+            Remove token
+          </button>
+        )}
+        {t.log.length > 0 && (
+          <button className="btn-ghost btn-sm" onClick={() => setShowLog((v) => !v)}>
+            {showLog ? 'Hide log' : 'Show connector log'}
+          </button>
+        )}
+      </div>
+      {showLog && (
+        <pre className="max-h-48 overflow-auto rounded-lg bg-ink p-3 font-mono text-[11px] leading-relaxed text-paper">
+          {t.log.join('\n')}
+        </pre>
+      )}
+    </Section>
+  );
+}
+
 function PublicUrlSection() {
   const settings = useSettings();
   const update = useUpdateSettings();
@@ -393,7 +520,6 @@ function PublicUrlSection() {
         {s.publicUrlCustom ? (
           <>
             {' '}
-            Server default is <span className="font-mono">{s.publicUrlEnv}</span>{' '}
             <button
               className="underline"
               onClick={() =>
@@ -403,12 +529,18 @@ function PublicUrlSection() {
                 )
               }
             >
-              use that instead
-            </button>
+              Clear the override
+            </button>{' '}
+            to go back to{' '}
+            {s.publicUrlEnv
+              ? 'the server default'
+              : 'auto-detecting it from the address you browse on'}
             .
           </>
-        ) : (
+        ) : s.publicUrlSource === 'env' ? (
           ' Currently taken from the PUBLIC_URL environment variable.'
+        ) : (
+          ' Auto-detected from the address you are using right now — set it explicitly if you print labels from more than one address.'
         )}
       </p>
     </Section>

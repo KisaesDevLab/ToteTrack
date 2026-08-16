@@ -43,7 +43,7 @@ export function authRouter(ctx: AuthContext): Router {
       const { pin } = parseBody(SetupInput, req.body);
       if (!(await pins.isSetupRequired())) throw conflict('PIN is already configured');
       const gen = await pins.setPin(pin);
-      setSessionCookie(res, env, createSessionToken(env.SESSION_SECRET, gen));
+      setSessionCookie(req, res, env, createSessionToken(env.SESSION_SECRET, gen));
       res.status(201).json({ ok: true });
     }),
   );
@@ -56,13 +56,13 @@ export function authRouter(ctx: AuthContext): Router {
       if (await pins.isSetupRequired()) throw conflict('Setup required');
       if (!(await pins.verify(pin))) throw unauthorized('Incorrect PIN');
       const gen = (await pins.generation())!;
-      setSessionCookie(res, env, createSessionToken(env.SESSION_SECRET, gen));
+      setSessionCookie(req, res, env, createSessionToken(env.SESSION_SECRET, gen));
       res.json({ ok: true });
     }),
   );
 
-  r.post('/logout', (_req, res) => {
-    clearSessionCookie(res, env);
+  r.post('/logout', (req, res) => {
+    clearSessionCookie(req, res, env);
     res.json({ ok: true });
   });
 
@@ -74,7 +74,7 @@ export function authRouter(ctx: AuthContext): Router {
       if (!(await pins.verify(currentPin))) throw unauthorized('Current PIN is incorrect');
       const gen = await pins.setPin(newPin);
       // Existing sessions stay valid (generation unchanged); refresh this device's cookie expiry.
-      setSessionCookie(res, env, createSessionToken(env.SESSION_SECRET, gen));
+      setSessionCookie(req, res, env, createSessionToken(env.SESSION_SECRET, gen));
       res.json({ ok: true });
     }),
   );

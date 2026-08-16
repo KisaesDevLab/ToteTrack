@@ -50,21 +50,26 @@ export function verifySessionToken(
   }
 }
 
-export function setSessionCookie(res: Response, env: Env, token: string): void {
+/** Secure flag follows how this request arrived (https via the tunnel / proxy → Secure). */
+function isSecure(req: Request): boolean {
+  return req.secure || req.get('x-forwarded-proto')?.split(',')[0]?.trim() === 'https';
+}
+
+export function setSessionCookie(req: Request, res: Response, _env: Env, token: string): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: env.sessionCookieSecure,
+    secure: isSecure(req),
     maxAge: SESSION_TTL_MS,
     path: '/',
   });
 }
 
-export function clearSessionCookie(res: Response, env: Env): void {
+export function clearSessionCookie(req: Request, res: Response, _env: Env): void {
   res.clearCookie(SESSION_COOKIE, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: env.sessionCookieSecure,
+    secure: isSecure(req),
     path: '/',
   });
 }
