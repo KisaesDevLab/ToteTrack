@@ -27,6 +27,10 @@ Open questions and judgment calls made while building autonomously. Each entry s
 18. **"All configuration via UI"** — implemented by (a) bundling `cloudflared` into the app image and having the app supervise it from a token entered in Settings (status + log tail in the UI), (b) auto-generating the session secret on first boot, (c) auto-detecting the public URL from the request when not pinned, (d) deciding `Secure` cookies per request. `docker compose up -d` now needs no `.env`. Remaining env-only values are pure plumbing (`DATABASE_URL`, `PORT`, `PHOTO_DIR`, `TRUST_PROXY`, `LOG_LEVEL`) with sane defaults, plus optional overrides. Postgres password defaults to `totetrack` inside the compose network — override `POSTGRES_PASSWORD` if you ever publish the DB port.
 19. **Tunnel connector = HTTP → `localhost:3000`** in the Cloudflare dashboard (the connector runs inside the app container). Verified locally that the bundled binary runs and reports token errors; a real tunnel needs your token to confirm end-to-end.
 
+20. **Pre-printed labels** — implemented as a `preprinted_labels` table: reserving advances `series.next_number` past the batch (so auto-numbered boxes never collide with a label already on a tote), scanning an unclaimed one auto-creates the box with that number, opens the capture panel and marks the box as printed. Voiding is only allowed while unclaimed.
+21. **Rescan** — replaces _all_ photos and AI items of the box and runs one box-level analysis (all new photos in a single request); manual items and the box's name/location/status are untouched. Old photo files are deleted (no history kept — say if you'd rather archive them).
+22. **Bug found while testing** — `boxCount` on the series and locations lists was computed by a correlated subquery whose `${table.id}` Drizzle rendered unqualified (join-less select), so it compared against the inner table's own id. Fixed with explicit table references + a regression test.
+
 ## Not verified (needs a human / real hardware)
 
 - **4×3 labels on your sheet-feed printer** — PDF geometry rendered and inspected (see `label-4x3` / `label-3x4`), but not printed on the actual device.

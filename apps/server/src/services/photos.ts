@@ -169,6 +169,21 @@ export async function deletePhoto(db: Db, storage: PhotoStorage, id: number): Pr
   return row.boxId;
 }
 
+/** Removes every photo of a box plus its AI-derived items and description (manual items stay). Returns file paths to delete. */
+export async function clearBoxPhotos(db: Db, boxId: number): Promise<{ photoPaths: string[] }> {
+  return db.transaction(async (tx) => {
+    const rows = await tx.select().from(photos).where(eq(photos.boxId, boxId));
+    await tx.delete(items).where(and(eq(items.boxId, boxId), eq(items.source, 'ai')));
+    await tx.delete(photos).where(eq(photos.boxId, boxId));
+    await tx
+      .update(boxes)
+      .set({ aiDescription: null, aiStatus: 'none', aiError: null })
+      .where(eq(boxes.id, boxId));
+    await refreshBoxSearchVector(tx, boxId);
+    return { photoPaths: rows.flatMap((p) => [p.originalPath, p.thumbPath]) };
+  });
+}
+
 export async function removeFiles(storage: PhotoStorage, rels: string[]): Promise<void> {
   for (const rel of rels) {
     try {

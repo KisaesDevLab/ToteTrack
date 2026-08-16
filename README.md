@@ -83,6 +83,16 @@ Restore with `pg_restore -U tote -d totetrack --clean` and by untarring back int
 | `LOG_LEVEL`               | `info`                       | pino level                                                           |
 | `APP_PORT` / `APP_BIND`   | `3000` / `127.0.0.1`         | Host binding (compose only)                                          |
 
+## Pre-printed labels & scanning workflow
+
+The intended packing loop is _print first, fill later_:
+
+1. **Print labels → Pre-print blank labels**: pick a series and a count (e.g. 30). The next 30 numbers are reserved (auto-numbering skips them) and a PDF of blank labels downloads. Stick them on empty totes.
+2. Pack a tote, then **scan its label** with the phone camera. Because the label is pre-printed and unclaimed, the box is created with that exact number and opens straight into **Scan the contents**: take one or more photos and the AI lists the items and writes the description (or add items by hand if AI is off).
+3. When a tote is repacked, open it (scan the label again) and tap **Rescan**: fresh photos replace the previous ones and the AI-suggested items; manual items are kept. Untick _Replace_ to add photos alongside the old ones instead.
+
+Unclaimed pre-printed labels are listed under the pre-print card (void a misprint there) and counted per series in Settings.
+
 ## Labels
 
 Print from **Print labels** (top-right). Default template is Avery 5163 (2"×4", 10/sheet); Avery 5160 (30/sheet) is also included. For a sheet-feed / roll label printer loaded with 4"×3" stock, pick **4" × 3" label (one per page)** (or the 3"×4" portrait variant): every label becomes its own 4×3 page — set the printer's paper size to the label size and print at 100% with no margins. Choose a start position to reuse a partially used sheet, and use the **Calibration page** to check alignment before wasting stock. Print at 100% scale — no "fit to page". Labels never need reprinting when a box moves: location is stored only in the database.

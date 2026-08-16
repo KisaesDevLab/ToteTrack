@@ -12,6 +12,7 @@ import type { Db, Tx } from '../db/index.js';
 import { boxes, items, locations, photos, series } from '../db/schema.js';
 import type { ItemRow, PhotoRow } from '../db/schema.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
+import { claimPreprinted } from './preprint.js';
 import { refreshBoxSearchVector } from './search-vector.js';
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
@@ -235,6 +236,7 @@ export async function createBox(db: Db, input: BoxCreateInput): Promise<BoxSumma
         .set({ nextNumber: number + 1 })
         .where(eq(series.id, s.id));
     }
+    await claimPreprinted(tx, s.id, number, created!.id);
     await refreshBoxSearchVector(tx, created!.id);
     return created!.id;
   });

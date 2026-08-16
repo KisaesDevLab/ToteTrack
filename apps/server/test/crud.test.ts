@@ -47,6 +47,26 @@ describe('series', () => {
 });
 
 describe('locations', () => {
+  it('counts boxes per location and per series correctly (correlated subquery regression)', async () => {
+    // Two boxes (own series C so other tests' numbering is untouched) in Attic; ids differ from
+    // the location/series ids → counts must still be 2.
+    const c = (await ctx.agent.post('/api/series').send({ letter: 'C' }).expect(201)).body;
+    const b1 = (
+      await ctx.agent.post('/api/boxes').send({ seriesId: c.id, locationId: ids.attic.id })
+    ).body;
+    const b2 = (
+      await ctx.agent.post('/api/boxes').send({ seriesId: c.id, locationId: ids.attic.id })
+    ).body;
+    const locs = (await ctx.agent.get('/api/locations').expect(200)).body;
+    expect(locs.find((l: { id: number }) => l.id === ids.attic.id).boxCount).toBe(2);
+    expect(locs.find((l: { id: number }) => l.id === ids.garage.id).boxCount).toBe(0);
+    const series = (await ctx.agent.get('/api/series').expect(200)).body;
+    expect(series.find((s: { id: number }) => s.id === c.id).boxCount).toBe(2);
+    await ctx.agent.delete(`/api/boxes/${b1.id}`).expect(204);
+    await ctx.agent.delete(`/api/boxes/${b2.id}`).expect(204);
+    await ctx.agent.delete(`/api/series/${c.id}`).expect(204);
+  });
+
   it('CRUD + reorder + unique', async () => {
     const dup = await ctx.agent.post('/api/locations').send({ name: 'Garage' }).expect(409);
     expect(dup.body.error.code).toBe('conflict');

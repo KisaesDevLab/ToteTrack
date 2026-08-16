@@ -11,7 +11,8 @@ import {
   refreshSearchVectorsForLocation,
 } from '../services/search-vector.js';
 
-const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.location_id = ${locations.id})`;
+// Explicit outer-table reference (see series.ts): `${locations.id}` would render unqualified here.
+const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.location_id = locations.id)`;
 
 function mapLocation(r: {
   id: number;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBoxes, useDownloadLabels, useLabelTemplates, useSettings } from '@/api/hooks';
 import { BoxCard } from '@/components/BoxCard';
+import { PreprintCard } from '@/components/PreprintCard';
 import { ErrorNote, Field, PageHeader, SkeletonList, Spinner } from '@/components/ui';
 import { errorMessage, useToast } from '@/lib/toast';
 
@@ -178,6 +179,9 @@ export function LabelsPage() {
         </div>
       </div>
 
+      <PreprintCard templateId={templateId} perSheet={perSheet} />
+
+      <h2 className="pt-2 text-sm font-semibold text-ink-soft">Print labels for existing boxes</h2>
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-1 rounded-xl bg-paper-sunk p-1 text-sm">
           <button

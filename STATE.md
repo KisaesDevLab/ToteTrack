@@ -1,10 +1,10 @@
 # STATE.md
 
-_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. All user-facing configuration lives in Settings (AI key/model/prompt, Cloudflare tunnel token with live status, public address, labels, PIN); `docker compose up -d` needs no .env._
+_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. Pre-printed labels (print → scan → capture) and Rescan added; all configuration lives in Settings; `docker compose up -d` needs no .env._
 
 ## Where things stand
 
-- **Backend** (`apps/server`): Express 4 + Drizzle/pg, ESM, bundled with tsup. 41 integration tests pass (`pnpm test`, needs the dev postgres from `docker-compose.dev.yml`).
+- **Backend** (`apps/server`): Express 4 + Drizzle/pg, ESM, bundled with tsup. 44 integration tests pass (`pnpm test`, needs the dev postgres from `docker-compose.dev.yml`).
 - **Frontend** (`apps/web`): Vite + React 18 + Tailwind, react-query, react-router; ~108 kB gzipped JS. Verified in headless Chromium at iPhone 13 and desktop widths.
 - **Shared** (`packages/shared`): zod schemas/types consumed by both, imported as TS source (bundled by tsup/Vite — no build step).
 - **Docker**: `Dockerfile` (node:20 build → distroless nonroot runtime, bundles `cloudflared`) + `docker-compose.yml` (zero-config). Full stack verified locally with no .env, including the tunnel supervisor.
@@ -25,6 +25,8 @@ _Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-c
 - [ ] **Add** → create box → label chip shows `A-00N`
 - [ ] **Print labels** → select box → Download PDF → prints aligned on Avery 5163 (use calibration page first)
 - [ ] Stick label on tote, scan QR with the phone camera while logged out → PIN → lands on the box
+- [ ] Print labels → Pre-print 5 blank labels → scan one → box auto-created → capture panel → photo → AI items
+- [ ] Repack that tote → scan → Rescan → old photos/AI items replaced, manual items kept
 - [ ] Box page → **Take photo** → thumbnail appears → "AI analyzing" pill → items + description filled in
 - [ ] Edit an item, add a manual item, seal the box, change its location
 - [ ] Home search: item name buried in the AI description finds the box; `A-1` finds A-001…

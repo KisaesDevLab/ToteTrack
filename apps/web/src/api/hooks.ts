@@ -9,8 +9,11 @@ import type {
   Item,
   ItemCreateInput,
   ItemUpdateInput,
+  LabelLookup,
   LabelPdfInput,
   LabelTemplate,
+  PreprintedLabel,
+  PreprintInput,
   Location,
   LocationCreateInput,
   LocationUpdateInput,
@@ -34,6 +37,8 @@ export const keys = {
   boxes: (q?: Partial<BoxListQuery>) => ['boxes', q ?? {}] as const,
   box: (id: number) => ['box', id] as const,
   boxByLabel: (label: string) => ['box-by-label', label] as const,
+  labelLookup: (label: string) => ['label-lookup', label] as const,
+  preprinted: ['preprinted'] as const,
   search: (q: string, locationId?: number, status?: string) =>
     ['search', q, locationId ?? null, status ?? null] as const,
   templates: ['label-templates'] as const,
@@ -435,6 +440,71 @@ export function useSearch(
 }
 
 // --- labels ------------------------------------------------------------------
+
+export function useLabelLookup(label: string | undefined) {
+  return useQuery({
+    queryKey: keys.labelLookup(label ?? ''),
+    queryFn: () => get<LabelLookup>(`/api/labels/lookup/${encodeURIComponent(label ?? '')}`),
+    enabled: Boolean(label),
+    retry: false,
+    staleTime: 0,
+  });
+}
+
+export function usePreprinted(unclaimedOnly = true) {
+  return useQuery({
+    queryKey: [...keys.preprinted, unclaimedOnly],
+    queryFn: () =>
+      get<PreprintedLabel[]>(`/api/labels/preprinted${unclaimedOnly ? '?unclaimed=true' : ''}`),
+    staleTime: 15_000,
+  });
+}
+
+export function usePreprint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PreprintInput) =>
+      download('/api/labels/preprint', {
+        method: 'POST',
+        body,
+        filename: 'totetrack-preprint.pdf',
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.preprinted });
+      void qc.invalidateQueries({ queryKey: keys.series });
+    },
+  });
+}
+
+export function useDeletePreprinted() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => del(`/api/labels/preprinted/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.preprinted });
+      void qc.invalidateQueries({ queryKey: keys.series });
+    },
+  });
+}
+
+export function useRescanBox(boxId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ files, replace }: { files: File[]; replace: boolean }) => {
+      const fd = new FormData();
+      fd.append('replace', replace ? 'true' : 'false');
+      for (const f of files) fd.append('photos', f, f.name || 'photo.jpg');
+      return api<UploadResult & { replaced: boolean }>(`/api/boxes/${boxId}/rescan`, {
+        method: 'POST',
+        formData: fd,
+      });
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(keys.box(boxId), data.box);
+      invalidateBoxy(qc);
+    },
+  });
+}
 
 export function useLabelTemplates() {
   return useQuery({

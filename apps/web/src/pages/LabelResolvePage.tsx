@@ -1,20 +1,50 @@
 import { normalizeLabelId } from '@totetrack/shared';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useBoxByLabel } from '@/api/hooks';
-import { ApiError } from '@/api/client';
+import { useCreateBox, useLabelLookup } from '@/api/hooks';
 import { EmptyState, ErrorNote, LabelChip, Spinner } from '@/components/ui';
+import { errorMessage, useToast } from '@/lib/toast';
 
-/** Target of QR codes: /b/:labelId → the box page. */
+/**
+ * Target of QR codes: /b/:labelId.
+ * - existing box → box page
+ * - pre-printed (unclaimed) label → create the box with that exact number and open it in capture mode
+ * - unknown label in a known series → offer to create it
+ */
 export function LabelResolvePage() {
   const { labelId } = useParams();
   const normalized = normalizeLabelId(labelId ?? '');
   const navigate = useNavigate();
-  const box = useBoxByLabel(normalized ?? undefined);
+  const toast = useToast();
+  const lookup = useLabelLookup(normalized ?? undefined);
+  const create = useCreateBox();
+  const started = useRef(false);
 
   useEffect(() => {
-    if (box.data) navigate(`/boxes/${box.data.id}`, { replace: true });
-  }, [box.data, navigate]);
+    const data = lookup.data;
+    if (!data || started.current) return;
+    if (data.box) {
+      started.current = true;
+      navigate(`/boxes/${data.box.id}`, { replace: true });
+      return;
+    }
+    if (data.preprinted && !data.preprinted.claimedBoxId && data.seriesId) {
+      started.current = true;
+      create.mutate(
+        { seriesId: data.seriesId, number: data.preprinted.number },
+        {
+          onSuccess: (box) => {
+            toast.success(`Created ${box.labelId} — take a photo of the contents`);
+            navigate(`/boxes/${box.id}?capture=1`, { replace: true });
+          },
+          onError: (err) => {
+            started.current = false;
+            toast.error(errorMessage(err));
+          },
+        },
+      );
+    }
+  }, [lookup.data, navigate, create, toast]);
 
   if (!normalized) {
     return (
@@ -29,33 +59,48 @@ export function LabelResolvePage() {
       />
     );
   }
-  if (box.isPending || box.data) {
+  if (lookup.isError) {
+    return <ErrorNote message="Could not look up that label" retry={() => void lookup.refetch()} />;
+  }
+  const data = lookup.data;
+  const settingUp =
+    !data || data.box || (data.preprinted && !data.preprinted.claimedBoxId && data.seriesId);
+  if (settingUp) {
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-ink-mute">
         <Spinner />
         <span className="text-sm">
-          Looking up <LabelChip label={normalized} size="sm" />…
+          {data?.preprinted ? (
+            <>
+              Setting up box <LabelChip label={normalized} size="sm" />…
+            </>
+          ) : (
+            <>
+              Looking up <LabelChip label={normalized} size="sm" />…
+            </>
+          )}
         </span>
       </div>
     );
   }
-  if (box.error instanceof ApiError && box.error.status === 404) {
-    return (
-      <EmptyState
-        title={`No box labelled ${normalized}`}
-        body="This label isn't in the inventory yet — maybe the box was deleted, or the label was printed ahead of time."
-        action={
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Link to={`/boxes/new?label=${encodeURIComponent(normalized)}`} className="btn-primary">
-              Create box {normalized}
-            </Link>
-            <Link to="/" className="btn-secondary">
-              Search instead
-            </Link>
-          </div>
-        }
-      />
-    );
-  }
-  return <ErrorNote message="Could not look up that label" retry={() => void box.refetch()} />;
+  return (
+    <EmptyState
+      title={`No box labelled ${normalized}`}
+      body={
+        data.seriesId
+          ? 'This label isn’t in the inventory yet — maybe the box was deleted, or the label was printed elsewhere.'
+          : `There is no series “${normalized[0]}” yet. Create the series in Settings first, or create the box and a series will be added.`
+      }
+      action={
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link to={`/boxes/new?label=${encodeURIComponent(normalized)}`} className="btn-primary">
+            Create box {normalized}
+          </Link>
+          <Link to="/" className="btn-secondary">
+            Search instead
+          </Link>
+        </div>
+      }
+    />
+  );
 }

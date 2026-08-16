@@ -1,6 +1,6 @@
 import type { BoxDetail } from '@totetrack/shared';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   useAnalyzeBox,
   useAnalyzePhoto,
@@ -18,10 +18,11 @@ import {
   useUpdateItem,
   useUploadPhotos,
 } from '@/api/hooks';
-import { ChevronLeft, PrintIcon, SparkIcon } from '@/components/AppShell';
+import { CameraIcon, ChevronLeft, PrintIcon, SparkIcon } from '@/components/AppShell';
 import { ItemList } from '@/components/ItemList';
 import { PhotoGallery } from '@/components/PhotoGallery';
 import { PhotoUploader } from '@/components/PhotoUploader';
+import { ScanPanel } from '@/components/ScanPanel';
 import {
   AiPill,
   EmptyState,
@@ -83,6 +84,19 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
   const bulkDelete = useBulkDeleteItems(box.id);
 
   const aiAvailable = settings.data?.aiAvailable ?? false;
+  const [params, setParams] = useSearchParams();
+  // ?capture=1 is set right after a pre-printed label is scanned: open the guided capture panel.
+  const [scanMode, setScanMode] = useState<'capture' | 'rescan' | null>(
+    params.get('capture') === '1' ? 'capture' : null,
+  );
+  const closeScan = () => {
+    setScanMode(null);
+    if (params.has('capture')) {
+      const next = new URLSearchParams(params);
+      next.delete('capture');
+      setParams(next, { replace: true });
+    }
+  };
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(box.name ?? '');
   const busy = update.isPending || toggle.isPending || reorder.isPending || deletePhoto.isPending;
@@ -115,11 +129,39 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
           </span>
         }
         action={
-          <Link to={`/labels?ids=${box.id}`} className="btn-secondary btn-sm" title="Print label">
-            <PrintIcon className="h-4 w-4" /> Label
-          </Link>
+          <div className="flex gap-2">
+            {scanMode === null && (
+              <button
+                type="button"
+                className={box.photos.length ? 'btn-secondary btn-sm' : 'btn-accent btn-sm'}
+                onClick={() => setScanMode(box.photos.length ? 'rescan' : 'capture')}
+                title={
+                  box.photos.length
+                    ? 'Retake photos and re-catalogue the contents'
+                    : 'Photograph the contents'
+                }
+              >
+                <CameraIcon className="h-4 w-4" /> {box.photos.length ? 'Rescan' : 'Scan'}
+              </button>
+            )}
+            <Link to={`/labels?ids=${box.id}`} className="btn-secondary btn-sm" title="Print label">
+              <PrintIcon className="h-4 w-4" /> Label
+            </Link>
+          </div>
         }
       />
+
+      {scanMode && (
+        <ScanPanel
+          boxId={box.id}
+          labelId={box.labelId}
+          mode={scanMode}
+          hasPhotos={box.photos.length > 0}
+          aiAvailable={aiAvailable}
+          onDone={closeScan}
+          onCancel={closeScan}
+        />
+      )}
 
       {/* Name + location + status */}
       <div className="card space-y-3 p-4">
@@ -195,19 +237,21 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
           })
         }
       />
-      <PhotoUploader
-        uploading={upload.isPending}
-        onUpload={(files) =>
-          upload.mutateAsync(files).then((r) => {
-            toast.success(
-              r.aiQueued
-                ? `${r.photos.length} photo${r.photos.length === 1 ? '' : 's'} added — AI is analyzing`
-                : `${r.photos.length} photo${r.photos.length === 1 ? '' : 's'} added`,
-            );
-          })
-        }
-        compact={box.photos.length > 0}
-      />
+      {scanMode === null && (
+        <PhotoUploader
+          uploading={upload.isPending}
+          onUpload={(files) =>
+            upload.mutateAsync(files).then((r) => {
+              toast.success(
+                r.aiQueued
+                  ? `${r.photos.length} photo${r.photos.length === 1 ? '' : 's'} added — AI is analyzing`
+                  : `${r.photos.length} photo${r.photos.length === 1 ? '' : 's'} added`,
+              );
+            })
+          }
+          compact={box.photos.length > 0}
+        />
+      )}
 
       {/* AI + description */}
       <DescriptionCard

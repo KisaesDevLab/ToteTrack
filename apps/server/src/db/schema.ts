@@ -114,6 +114,25 @@ export const items = pgTable(
   ],
 );
 
+/** Labels printed ahead of time (numbers reserved in a series). Claimed when a box takes the number. */
+export const preprintedLabels = pgTable(
+  'preprinted_labels',
+  {
+    id: serial('id').primaryKey(),
+    seriesId: integer('series_id')
+      .notNull()
+      .references(() => series.id, { onDelete: 'cascade' }),
+    number: integer('number').notNull(),
+    printedAt: timestamp('printed_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedBoxId: integer('claimed_box_id').references(() => boxes.id, { onDelete: 'set null' }),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('preprinted_series_number_uq').on(t.seriesId, t.number),
+    index('preprinted_unclaimed_idx').on(t.seriesId, t.claimedAt),
+  ],
+);
+
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
@@ -125,3 +144,4 @@ export type LocationRow = typeof locations.$inferSelect;
 export type BoxRow = typeof boxes.$inferSelect;
 export type PhotoRow = typeof photos.$inferSelect;
 export type ItemRow = typeof items.$inferSelect;
+export type PreprintedLabelRow = typeof preprintedLabels.$inferSelect;

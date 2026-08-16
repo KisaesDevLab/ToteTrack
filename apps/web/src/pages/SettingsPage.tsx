@@ -104,8 +104,12 @@ function SeriesSection() {
                 }}
               />
               <div className="text-xs text-ink-mute">
-                {s.boxCount ?? 0} box{s.boxCount === 1 ? '' : 'es'} · next {s.letter}-
-                {String(s.nextNumber).padStart(3, '0')}
+                {s.boxCount ?? 0} box{s.boxCount === 1 ? '' : 'es'}
+                {s.unclaimedLabels
+                  ? ` · ${s.unclaimedLabels} pre-printed label${s.unclaimedLabels === 1 ? '' : 's'} waiting`
+                  : ''}
+                {' · next '}
+                {s.letter}-{String(s.nextNumber).padStart(3, '0')}
                 <button
                   className="ml-2 underline"
                   onClick={() => {

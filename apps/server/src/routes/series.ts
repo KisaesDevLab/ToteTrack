@@ -7,7 +7,10 @@ import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { asyncHandler, idParam, parseBody } from '../lib/http.js';
 import { isUniqueViolation } from '../services/boxes.js';
 
-const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.series_id = ${series.id})`;
+// NB: reference the outer table explicitly — in a join-less select Drizzle renders `${series.id}` as a bare
+// "id", which a correlated subquery would resolve to the inner table's column.
+const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.series_id = series.id)`;
+const unclaimedSql = sql<number>`(SELECT count(*)::int FROM preprinted_labels p WHERE p.series_id = series.id AND p.claimed_at IS NULL)`;
 
 function mapSeries(r: {
   id: number;
@@ -16,6 +19,7 @@ function mapSeries(r: {
   nextNumber: number;
   createdAt: Date;
   boxCount?: number;
+  unclaimedLabels?: number;
 }) {
   return {
     id: r.id,
@@ -23,6 +27,7 @@ function mapSeries(r: {
     description: r.description,
     nextNumber: r.nextNumber,
     boxCount: r.boxCount !== undefined ? Number(r.boxCount) : undefined,
+    unclaimedLabels: r.unclaimedLabels !== undefined ? Number(r.unclaimedLabels) : undefined,
     createdAt: r.createdAt.toISOString(),
   };
 }
@@ -41,6 +46,7 @@ export function seriesRouter(db: Db): Router {
           nextNumber: series.nextNumber,
           createdAt: series.createdAt,
           boxCount: boxCountSql,
+          unclaimedLabels: unclaimedSql,
         })
         .from(series)
         .orderBy(asc(series.letter));

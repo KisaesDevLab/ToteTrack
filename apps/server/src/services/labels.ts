@@ -1,4 +1,7 @@
 import type { BoxSummary, LabelTemplate } from '@totetrack/shared';
+
+/** What a label needs: the ID and an optional name line. Works for boxes and pre-printed labels. */
+export type LabelSubject = Pick<BoxSummary, 'labelId' | 'name'>;
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib';
 import QRCode from 'qrcode';
 
@@ -159,7 +162,7 @@ export interface LabelPdfOptions {
 }
 
 export async function renderLabelsPdf(
-  boxesToPrint: BoxSummary[],
+  boxesToPrint: LabelSubject[],
   opts: LabelPdfOptions,
 ): Promise<Uint8Array> {
   const t = getTemplate(opts.templateId);
@@ -196,7 +199,7 @@ export async function renderLabelsPdf(
 
 async function drawLabel(
   page: PDFPage,
-  box: BoxSummary,
+  box: LabelSubject,
   origin: { x: number; y: number },
   t: LabelTemplateSpec,
   ctx: { bold: PDFFont; regular: PDFFont; includeName: boolean; publicUrl: string },
@@ -255,7 +258,7 @@ async function drawLabel(
 /** Tall / single labels: big label ID on top, QR centred, optional name at the bottom. */
 function drawStacked(
   page: PDFPage,
-  box: BoxSummary,
+  box: LabelSubject,
   origin: { x: number; y: number },
   t: LabelTemplateSpec,
   ctx: { bold: PDFFont; regular: PDFFont; includeName: boolean; publicUrl: string },

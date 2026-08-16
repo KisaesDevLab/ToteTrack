@@ -26,6 +26,7 @@ import {
   updateBox,
 } from '../services/boxes.js';
 import {
+  clearBoxPhotos,
   MAX_UPLOAD_BYTES,
   removeFiles,
   reorderPhotos,
@@ -131,6 +132,36 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
       const createdIds = new Set(created.map((p) => p.id));
       const photosOut = detail.photos.filter((p) => createdIds.has(p.id));
       res.status(201).json({ photos: photosOut, aiQueued: queued, box: detail });
+    }),
+  );
+
+  /**
+   * Rescan: retake photos of a box whose contents changed. With `replace=true` (default) the old
+   * photos and AI-suggested items are removed first; new photos are stored and one box-level analysis
+   * (all photos in a single request) rebuilds the item list and description. Manual items are kept.
+   */
+  r.post(
+    '/:id/rescan',
+    upload.array('photos', 20),
+    asyncHandler(async (req, res) => {
+      const boxId = idParam(req.params.id);
+      await requireBox(db, boxId);
+      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+      if (!files.length) throw badRequest('No photos uploaded (field name: photos)');
+      const replace = String(req.body?.replace ?? 'true') !== 'false';
+      if (replace) {
+        const { photoPaths } = await clearBoxPhotos(db, boxId);
+        await removeFiles(storage, photoPaths);
+      }
+      const created = [];
+      for (const f of files) created.push(await storePhoto(db, storage, boxId, f.buffer));
+      let queued = false;
+      if (await ai.isAvailable()) {
+        await ai.enqueueBox(boxId);
+        queued = true;
+      }
+      const detail = (await getBoxDetail(db, boxId))!;
+      res.status(201).json({ photos: created, aiQueued: queued, replaced: replace, box: detail });
     }),
   );
 

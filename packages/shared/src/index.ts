@@ -55,6 +55,8 @@ export const Series = z.object({
   description: z.string().nullable(),
   nextNumber: z.number().int(),
   boxCount: z.number().int().optional(),
+  /** Pre-printed labels in this series that no box has claimed yet. */
+  unclaimedLabels: z.number().int().optional(),
   createdAt: z.string(),
 });
 export type Series = z.infer<typeof Series>;
@@ -218,6 +220,37 @@ export const LabelPdfInput = z.object({
   markPrinted: z.boolean().optional().default(true),
 });
 export type LabelPdfInput = z.infer<typeof LabelPdfInput>;
+
+/** Print a batch of labels for numbers that don't have boxes yet. */
+export const PreprintInput = z.object({
+  seriesId: Id,
+  count: z.number().int().min(1).max(200),
+  templateId: z.string().optional(),
+  startOffset: z.number().int().min(0).max(100).optional().default(0),
+});
+export type PreprintInput = z.infer<typeof PreprintInput>;
+
+export const PreprintedLabel = z.object({
+  id: Id,
+  seriesId: Id,
+  seriesLetter: z.string(),
+  number: z.number().int(),
+  labelId: z.string(),
+  printedAt: z.string(),
+  claimedBoxId: Id.nullable(),
+  claimedAt: z.string().nullable(),
+});
+export type PreprintedLabel = z.infer<typeof PreprintedLabel>;
+
+/** What a scanned label resolves to. */
+export const LabelLookup = z.object({
+  labelId: z.string(),
+  box: BoxSummary.nullable(),
+  preprinted: PreprintedLabel.nullable(),
+  /** The series exists, so the label can be created with this exact number. */
+  seriesId: Id.nullable(),
+});
+export type LabelLookup = z.infer<typeof LabelLookup>;
 
 export const LabelTemplate = z.object({
   id: z.string(),
