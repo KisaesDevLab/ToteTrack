@@ -111,7 +111,11 @@ describe('backup & restore', () => {
       .send({ anthropicApiKey: 'sk-ant-secret-key-000000', aiModel: 'model-x' })
       .expect(200);
 
-    const zipRes = await ctx.agent.get('/api/backup').buffer(true).parse(binaryParser as never).expect(200);
+    const zipRes = await ctx.agent
+      .get('/api/backup')
+      .buffer(true)
+      .parse(binaryParser as never)
+      .expect(200);
     expect(zipRes.headers['content-type']).toMatch(/application\/zip/);
     const zip = zipRes.body as Buffer;
     expect(zip.length).toBeGreaterThan(1000);

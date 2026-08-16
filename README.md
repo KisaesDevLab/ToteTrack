@@ -33,7 +33,19 @@ docker compose up -d
 
 **From a checkout of this repo** (builds the image locally): `docker compose up -d --build`
 
-Images are published to **GHCR** by `.github/workflows/docker.yml` on every push to `main` (`:latest`, `:main`, `:sha-…`) and on version tags (`v1.2.3` → `:1.2.3`, `:1.2`), for `linux/amd64` and `linux/arm64`. CI (`ci.yml`) runs typecheck, lint, the web build and the test suite against Postgres 16.
+Images are published to **GHCR** by `.github/workflows/ci.yml` — only after typecheck, lint, the web build and the test suite (against Postgres 16) pass — on every push to `main` (`:latest`, `:main`, `:sha-…`) and on version tags (`v1.2.3` → `:1.2.3`, `:1.2`), for `linux/amd64` and `linux/arm64`.
+
+### Updating
+
+From the folder that holds `docker-compose.yml`:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/KisaesDevLab/ToteTrack/main/deploy/update.sh && sh update.sh
+```
+
+`update.sh` refreshes the compose file, pulls the newest image, restarts the stack (`docker compose pull && docker compose up -d`) and prunes old images. Database migrations run automatically when the new container starts; photos and data live on volumes and are untouched. To pin a version rather than track `:latest`, set `TOTETRACK_TAG=1.2.3` in a `.env` next to the compose file. Take a backup first if you like (Settings → Backup & restore).
+
+If you deploy from a checkout instead: `git pull && docker compose up -d --build`.
 
 That's it — no `.env` needed. Open http://localhost:3000 (or the tunnel hostname), set the household PIN, then configure everything else from **Settings**:
 
