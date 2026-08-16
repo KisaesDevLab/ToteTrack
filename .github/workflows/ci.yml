@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tote
+          POSTGRES_PASSWORD: tote
+          POSTGRES_DB: totetrack
+        ports: ['5442:5432']
+        options: >-
+          --health-cmd "pg_isready -U tote -d totetrack"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm --filter @totetrack/web build
+      - run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://tote:tote@localhost:5442/totetrack_test
+          TOTETRACK_NO_DOTENV: '1'

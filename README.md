@@ -24,8 +24,11 @@ Other scripts: `pnpm test` (API integration tests against a `totetrack_test` DB 
 ## Production deployment
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build            # build locally, or…
+TOTETRACK_IMAGE=ghcr.io/kisaesdevlab/totetrack:latest docker compose up -d --no-build   # use the published image
 ```
+
+Images are published to **GHCR** by `.github/workflows/docker.yml` on every push to `main` (`:latest`, `:main`, `:sha-…`) and on version tags (`v1.2.3` → `:1.2.3`, `:1.2`), for `linux/amd64` and `linux/arm64`. CI (`ci.yml`) runs typecheck, lint, the web build and the test suite against Postgres 16.
 
 That's it — no `.env` needed. Open http://localhost:3000 (or the tunnel hostname), set the household PIN, then configure everything else from **Settings**:
 
