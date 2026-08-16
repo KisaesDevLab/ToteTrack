@@ -23,10 +23,15 @@ Other scripts: `pnpm test` (API integration tests against a `totetrack_test` DB 
 
 ## Production deployment
 
+**On any host with Docker (no checkout needed):**
+
 ```bash
-docker compose up -d --build            # build locally, or…
-TOTETRACK_IMAGE=ghcr.io/kisaesdevlab/totetrack:latest docker compose up -d --no-build   # use the published image
+mkdir -p ~/totetrack && cd ~/totetrack
+curl -fsSLO https://raw.githubusercontent.com/KisaesDevLab/ToteTrack/main/deploy/docker-compose.yml
+docker compose up -d
 ```
+
+**From a checkout of this repo** (builds the image locally): `docker compose up -d --build`
 
 Images are published to **GHCR** by `.github/workflows/docker.yml` on every push to `main` (`:latest`, `:main`, `:sha-…`) and on version tags (`v1.2.3` → `:1.2.3`, `:1.2`), for `linux/amd64` and `linux/arm64`. CI (`ci.yml`) runs typecheck, lint, the web build and the test suite against Postgres 16.
 
