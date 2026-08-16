@@ -1,6 +1,6 @@
 import type { Item, ItemCreateInput, ItemUpdateInput } from '@totetrack/shared';
 import { useState, type FormEvent } from 'react';
-import { SparkIcon, TrashIcon } from './AppShell';
+import { CameraIcon, SparkIcon, TrashIcon } from './AppShell';
 
 export function ItemList({
   items,
@@ -8,6 +8,9 @@ export function ItemList({
   onUpdate,
   onDelete,
   onDeleteAllAi,
+  onShowPhoto,
+  onMove,
+  livePhotoIds,
   busy,
 }: {
   items: Item[];
@@ -15,6 +18,12 @@ export function ItemList({
   onUpdate: (id: number, input: ItemUpdateInput) => Promise<unknown>;
   onDelete: (id: number) => Promise<unknown>;
   onDeleteAllAi: () => Promise<unknown>;
+  /** Jump to the photo an AI item was found in. */
+  onShowPhoto?: (photoId: number) => void;
+  /** Move the item to another box (opens a picker). */
+  onMove?: (item: Item) => void;
+  /** Photos currently on the box — items linked to other (trashed) photos get no jump button. */
+  livePhotoIds?: Set<number>;
   busy?: boolean;
 }) {
   const [editing, setEditing] = useState<number | null>(null);
@@ -57,6 +66,14 @@ export function ItemList({
                 initial={item}
                 submitLabel="Save"
                 onCancel={() => setEditing(null)}
+                onMove={
+                  onMove
+                    ? () => {
+                        setEditing(null);
+                        onMove(item);
+                      }
+                    : undefined
+                }
                 onSubmit={async (input) => {
                   await onUpdate(item.id, input);
                   setEditing(null);
@@ -88,6 +105,17 @@ export function ItemList({
                 </div>
                 {item.note && <div className="mt-0.5 text-xs text-ink-mute">{item.note}</div>}
               </button>
+              {onShowPhoto && item.photoId && livePhotoIds?.has(item.photoId) && (
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm text-ink-mute"
+                  aria-label={`Show the photo ${item.name} was found in`}
+                  title="Show in photo"
+                  onClick={() => onShowPhoto(item.photoId!)}
+                >
+                  <CameraIcon className="h-4 w-4" />
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-ghost btn-sm text-ink-mute hover:text-bad"
@@ -112,12 +140,14 @@ function ItemForm({
   initial,
   onSubmit,
   onCancel,
+  onMove,
   submitLabel,
   compact,
 }: {
   initial?: Item;
   onSubmit: (input: ItemCreateInput) => Promise<unknown>;
   onCancel?: () => void;
+  onMove?: () => void;
   submitLabel: string;
   compact?: boolean;
 }) {
@@ -192,7 +222,12 @@ function ItemForm({
         </button>
       )}
       {error && <p className="text-xs text-bad">{error}</p>}
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {onMove && (
+          <button type="button" className="btn-ghost btn-sm mr-auto text-xs" onClick={onMove}>
+            Move to another box…
+          </button>
+        )}
         {onCancel && (
           <button type="button" className="btn-ghost btn-sm" onClick={onCancel}>
             Cancel

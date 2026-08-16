@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { useDeletePreprinted, usePreprint, usePreprinted, useSeries } from '@/api/hooks';
+import {
+  useDeletePreprinted,
+  usePreprint,
+  usePreprintBatches,
+  usePreprinted,
+  useReprintBatch,
+  useSeries,
+} from '@/api/hooks';
 import { LabelChip, Spinner } from './ui';
 import { TrashIcon } from './AppShell';
 import { errorMessage, useToast } from '@/lib/toast';
@@ -10,7 +17,10 @@ export function PreprintCard({ templateId, perSheet }: { templateId: string; per
   const preprinted = usePreprinted(true);
   const preprint = usePreprint();
   const voidLabel = useDeletePreprinted();
+  const batches = usePreprintBatches();
+  const reprint = useReprintBatch();
   const toast = useToast();
+  const [showBatches, setShowBatches] = useState(false);
   const [seriesId, setSeriesId] = useState<number | ''>('');
   const [count, setCount] = useState(perSheet);
   const [startOffset, setStartOffset] = useState(0);
@@ -146,6 +156,71 @@ export function PreprintCard({ templateId, perSheet }: { templateId: string; per
                   >
                     <TrashIcon className="h-3.5 w-3.5" />
                   </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {(batches.data?.length ?? 0) > 0 && (
+        <div className="border-t border-line pt-3">
+          <button
+            className="text-xs font-medium text-accent-deep"
+            onClick={() => setShowBatches((v) => !v)}
+          >
+            Past batches ({batches.data!.length}) — reprint after a jam or lost sheet{' '}
+            {showBatches ? '▴' : '▾'}
+          </button>
+          {showBatches && (
+            <ul className="mt-2 divide-y divide-line text-sm">
+              {batches.data!.map((b) => (
+                <li key={b.batchId} className="flex flex-wrap items-center gap-2 py-2">
+                  <span className="font-mono text-xs">
+                    {b.firstLabelId} … {b.lastLabelId}
+                  </span>
+                  <span className="text-xs text-ink-mute">
+                    {b.count} label{b.count === 1 ? '' : 's'} · {b.unclaimed} still blank ·{' '}
+                    {new Date(b.printedAt).toLocaleDateString()}
+                  </span>
+                  <span className="ml-auto flex gap-1">
+                    <button
+                      className="btn-secondary btn-sm"
+                      disabled={reprint.isPending}
+                      title={`Re-download all ${b.count} labels of this batch (${b.templateId ?? templateId})`}
+                      onClick={() =>
+                        reprint.mutate(
+                          {
+                            batchId: b.batchId,
+                            templateId: b.templateId ?? templateId,
+                            startOffset,
+                          },
+                          { onError: (err) => toast.error(errorMessage(err)) },
+                        )
+                      }
+                    >
+                      Reprint all
+                    </button>
+                    {b.unclaimed > 0 && b.unclaimed < b.count && (
+                      <button
+                        className="btn-ghost btn-sm text-xs"
+                        disabled={reprint.isPending}
+                        title="Only the labels no box has claimed yet"
+                        onClick={() =>
+                          reprint.mutate(
+                            {
+                              batchId: b.batchId,
+                              templateId: b.templateId ?? templateId,
+                              startOffset,
+                              unclaimedOnly: true,
+                            },
+                            { onError: (err) => toast.error(errorMessage(err)) },
+                          )
+                        }
+                      >
+                        Blank only
+                      </button>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

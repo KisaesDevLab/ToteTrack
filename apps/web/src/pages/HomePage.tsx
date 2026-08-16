@@ -1,10 +1,10 @@
 import { normalizeLabelId } from '@totetrack/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useLocations, useSearch } from '@/api/hooks';
+import { useInfiniteSearch, useLocations } from '@/api/hooks';
 import { SearchIcon } from '@/components/AppShell';
 import { BoxCard, ViewModeToggle } from '@/components/BoxCard';
-import { EmptyState, ErrorNote, SkeletonList } from '@/components/ui';
+import { EmptyState, ErrorNote, SkeletonList, Spinner } from '@/components/ui';
 import { useViewMode } from '@/lib/viewMode';
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -24,8 +24,23 @@ export function HomePage() {
   const debounced = useDebounced(q.trim(), 250);
   const navigate = useNavigate();
   const locations = useLocations();
-  const search = useSearch(debounced, { locationId, status });
+  const search = useInfiniteSearch(debounced, { locationId, status });
   const [viewMode, setViewMode] = useViewMode();
+
+  // Infinite scroll: fetch the next 50 when the sentinel comes into view.
+  const sentinel = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !search.hasNextPage) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !search.isFetchingNextPage) void search.fetchNextPage();
+      },
+      { rootMargin: '600px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [search, search.hasNextPage, search.isFetchingNextPage]);
 
   useEffect(() => {
     const next = new URLSearchParams(params);
@@ -43,7 +58,7 @@ export function HomePage() {
   };
 
   const exactLabel = useMemo(() => normalizeLabelId(debounced), [debounced]);
-  const results = search.data ?? [];
+  const results = useMemo(() => search.data?.pages.flat() ?? [], [search.data]);
   const isSearching = debounced.length > 0;
 
   return (
@@ -111,7 +126,7 @@ export function HomePage() {
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink-soft">
             {isSearching
-              ? `Results${search.data ? ` (${results.length})` : ''}`
+              ? `Results${search.data ? ` (${results.length}${search.hasNextPage ? '+' : ''})` : ''}`
               : 'Recently updated'}
           </h2>
           <div className="flex items-center gap-3">
@@ -176,6 +191,15 @@ export function HomePage() {
                 />
               </li>
             ))}
+            <li ref={sentinel} className="flex justify-center py-3 text-xs text-ink-mute">
+              {search.isFetchingNextPage ? (
+                <Spinner className="h-4 w-4" />
+              ) : search.hasNextPage ? (
+                <button className="underline" onClick={() => void search.fetchNextPage()}>
+                  Load more
+                </button>
+              ) : null}
+            </li>
           </ul>
         )}
       </section>

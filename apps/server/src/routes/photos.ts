@@ -3,7 +3,14 @@ import type { Db } from '../db/index.js';
 import { notFound, serviceUnavailable } from '../lib/errors.js';
 import { asyncHandler, idParam } from '../lib/http.js';
 import type { AiService } from '../services/ai.js';
-import { deletePhoto, getPhotoRow, type PhotoStorage } from '../services/photos.js';
+import {
+  getPhotoRow,
+  purgePhoto,
+  removeFiles,
+  restorePhoto,
+  trashPhoto,
+  type PhotoStorage,
+} from '../services/photos.js';
 
 export function photosRouter(db: Db, storage: PhotoStorage, ai: AiService): Router {
   const r = Router();
@@ -29,11 +36,25 @@ export function photosRouter(db: Db, storage: PhotoStorage, ai: AiService): Rout
     }),
   );
 
+  // Default: move to the Trash (restorable for 30 days). ?permanent=true deletes for good.
   r.delete(
     '/:id',
     asyncHandler(async (req, res) => {
-      await deletePhoto(db, storage, idParam(req.params.id));
+      const id = idParam(req.params.id);
+      if (req.query.permanent === 'true') {
+        const { photoPaths } = await purgePhoto(db, id);
+        await removeFiles(storage, photoPaths);
+      } else {
+        await trashPhoto(db, id);
+      }
       res.status(204).end();
+    }),
+  );
+
+  r.post(
+    '/:id/restore',
+    asyncHandler(async (req, res) => {
+      res.json(await restorePhoto(db, idParam(req.params.id)));
     }),
   );
 
@@ -41,7 +62,8 @@ export function photosRouter(db: Db, storage: PhotoStorage, ai: AiService): Rout
     '/:id/analyze',
     asyncHandler(async (req, res) => {
       const id = idParam(req.params.id);
-      await getPhotoRow(db, id);
+      const p = await getPhotoRow(db, id);
+      if (p.deletedAt) throw notFound('Photo is in the Trash');
       if (!(await ai.isAvailable()))
         throw serviceUnavailable(
           'AI analysis is not configured — add an Anthropic API key in Settings or ANTHROPIC_API_KEY',

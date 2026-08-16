@@ -79,11 +79,20 @@ export const Photo = z.object({
   aiStatus: AiStatus,
   aiError: z.string().nullable(),
   createdAt: z.string(),
+  /** Set while the photo sits in the Trash (restorable for 30 days). */
+  deletedAt: z.string().nullable(),
   /** Session-protected URLs, served by the API. */
   originalUrl: z.string(),
   thumbUrl: z.string(),
 });
 export type Photo = z.infer<typeof Photo>;
+
+/** A trashed photo as listed on the Trash page (its box is still live). */
+export const TrashedPhoto = Photo.extend({
+  boxLabelId: z.string(),
+  boxName: z.string().nullable(),
+});
+export type TrashedPhoto = z.infer<typeof TrashedPhoto>;
 
 export const Item = z.object({
   id: Id,
@@ -115,6 +124,8 @@ export const BoxSummary = z.object({
   itemCount: z.number().int(),
   thumbUrl: z.string().nullable(),
   printedAt: z.string().nullable(),
+  /** Set while the box sits in the Trash (restorable for 30 days). Lists never include trashed boxes. */
+  deletedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -132,6 +143,15 @@ export const SearchResult = BoxSummary.extend({
   headline: z.string().nullable(),
 });
 export type SearchResult = z.infer<typeof SearchResult>;
+
+export const TRASH_RETENTION_DAYS = 30;
+
+export const TrashContents = z.object({
+  boxes: z.array(BoxSummary),
+  photos: z.array(TrashedPhoto),
+  retentionDays: z.number().int(),
+});
+export type TrashContents = z.infer<typeof TrashContents>;
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -199,8 +219,24 @@ export const ItemCreateInput = z.object({
 });
 export type ItemCreateInput = z.infer<typeof ItemCreateInput>;
 
-export const ItemUpdateInput = ItemCreateInput.partial();
+export const ItemUpdateInput = ItemCreateInput.partial().extend({
+  /** Move the item to another box (its photo link is dropped — the photo stays with the old box). */
+  boxId: Id.optional(),
+});
 export type ItemUpdateInput = z.infer<typeof ItemUpdateInput>;
+
+export const BOX_BULK_ACTIONS = ['setLocation', 'seal', 'open', 'trash'] as const;
+export const BoxBulkInput = z
+  .object({
+    ids: z.array(Id).min(1).max(500),
+    action: z.enum(BOX_BULK_ACTIONS),
+    locationId: Id.nullable().optional(),
+  })
+  .refine((v) => v.action !== 'setLocation' || v.locationId !== undefined, {
+    message: 'locationId is required for setLocation',
+    path: ['locationId'],
+  });
+export type BoxBulkInput = z.infer<typeof BoxBulkInput>;
 
 export const PhotoReorderInput = z.object({ ids: z.array(Id).min(1) });
 
@@ -209,6 +245,7 @@ export const SearchQuery = z.object({
   locationId: z.coerce.number().int().positive().optional(),
   status: BoxStatus.optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  offset: z.coerce.number().int().min(0).optional().default(0),
 });
 export type SearchQuery = z.infer<typeof SearchQuery>;
 
@@ -230,6 +267,15 @@ export const PreprintInput = z.object({
 });
 export type PreprintInput = z.infer<typeof PreprintInput>;
 
+/** Re-download the PDF of an earlier pre-print batch (printer jam, lost sheet…). */
+export const PreprintReprintInput = z.object({
+  templateId: z.string().optional(),
+  startOffset: z.number().int().min(0).max(100).optional().default(0),
+  /** Skip labels a box has already claimed (they are on totes already). */
+  unclaimedOnly: z.boolean().optional().default(false),
+});
+export type PreprintReprintInput = z.infer<typeof PreprintReprintInput>;
+
 export const PreprintedLabel = z.object({
   id: Id,
   seriesId: Id,
@@ -239,13 +285,29 @@ export const PreprintedLabel = z.object({
   printedAt: z.string(),
   claimedBoxId: Id.nullable(),
   claimedAt: z.string().nullable(),
+  batchId: z.string().nullable(),
 });
 export type PreprintedLabel = z.infer<typeof PreprintedLabel>;
+
+export const PreprintBatch = z.object({
+  batchId: z.string(),
+  seriesId: Id,
+  seriesLetter: z.string(),
+  firstLabelId: z.string(),
+  lastLabelId: z.string(),
+  count: z.number().int(),
+  unclaimed: z.number().int(),
+  printedAt: z.string(),
+  templateId: z.string().nullable(),
+});
+export type PreprintBatch = z.infer<typeof PreprintBatch>;
 
 /** What a scanned label resolves to. */
 export const LabelLookup = z.object({
   labelId: z.string(),
   box: BoxSummary.nullable(),
+  /** The label belongs to a box that is currently in the Trash (restore it instead of creating a new one). */
+  trashedBox: BoxSummary.nullable(),
   preprinted: PreprintedLabel.nullable(),
   /** The series exists, so the label can be created with this exact number. */
   seriesId: Id.nullable(),
@@ -366,6 +428,32 @@ export const AiAnalysis = z.object({
   items: z.array(AiItem),
 });
 export type AiAnalysis = z.infer<typeof AiAnalysis>;
+
+// ---------------------------------------------------------------------------
+// Backup
+// ---------------------------------------------------------------------------
+
+export const BACKUP_FORMAT = 'totetrack-backup';
+export const BACKUP_FORMAT_VERSION = 1;
+
+export const BackupManifest = z.object({
+  format: z.literal(BACKUP_FORMAT),
+  formatVersion: z.number().int(),
+  appVersion: z.string(),
+  createdAt: z.string(),
+  counts: z.record(z.number().int()),
+  /** Settings keys deliberately left out (secrets) — must be re-entered after a restore. */
+  omittedSettings: z.array(z.string()),
+});
+export type BackupManifest = z.infer<typeof BackupManifest>;
+
+export const BackupRestoreResult = z.object({
+  restored: z.record(z.number().int()),
+  photoFiles: z.number().int(),
+  missingPhotoFiles: z.number().int(),
+  manifest: BackupManifest,
+});
+export type BackupRestoreResult = z.infer<typeof BackupRestoreResult>;
 
 // ---------------------------------------------------------------------------
 // API envelope

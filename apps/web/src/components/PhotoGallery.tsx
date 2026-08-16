@@ -11,6 +11,7 @@ export function PhotoGallery({
   onAnalyze,
   aiAvailable,
   busy,
+  openRequest,
 }: {
   photos: Photo[];
   onDelete: (id: number) => void;
@@ -18,10 +19,20 @@ export function PhotoGallery({
   onAnalyze: (id: number) => void;
   aiAvailable: boolean;
   busy?: boolean;
+  /** Ask the gallery to open a photo full screen (e.g. tapping an AI item shows where it was seen). */
+  openRequest?: { photoId: number; nonce: number } | null;
 }) {
   const [emblaRef, embla] = useEmblaCarousel({ loop: false, align: 'start' });
   const [index, setIndex] = useState(0);
   const [lightbox, setLightbox] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!openRequest) return;
+    const i = photos.findIndex((p) => p.id === openRequest.photoId);
+    if (i < 0) return;
+    embla?.scrollTo(i);
+    setLightbox(i);
+  }, [openRequest, photos, embla]);
 
   useEffect(() => {
     if (!embla) return;

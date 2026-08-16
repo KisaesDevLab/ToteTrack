@@ -15,6 +15,13 @@
       "when": 1786890581835,
       "tag": "0001_preprinted_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786909447804,
+      "tag": "0002_trash_batches",
+      "breakpoints": true
     }
   ]
 }

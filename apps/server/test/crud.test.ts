@@ -62,8 +62,14 @@ describe('locations', () => {
     expect(locs.find((l: { id: number }) => l.id === ids.garage.id).boxCount).toBe(0);
     const series = (await ctx.agent.get('/api/series').expect(200)).body;
     expect(series.find((s: { id: number }) => s.id === c.id).boxCount).toBe(2);
+    // Trashed boxes drop out of the counts but still block a series delete until purged.
     await ctx.agent.delete(`/api/boxes/${b1.id}`).expect(204);
     await ctx.agent.delete(`/api/boxes/${b2.id}`).expect(204);
+    const after = (await ctx.agent.get('/api/locations').expect(200)).body;
+    expect(after.find((l: { id: number }) => l.id === ids.attic.id).boxCount).toBe(0);
+    await ctx.agent.delete(`/api/series/${c.id}`).expect(409);
+    await ctx.agent.delete(`/api/boxes/${b1.id}?permanent=true`).expect(204);
+    await ctx.agent.delete(`/api/boxes/${b2.id}?permanent=true`).expect(204);
     await ctx.agent.delete(`/api/series/${c.id}`).expect(204);
   });
 
@@ -123,8 +129,75 @@ describe('boxes', () => {
     await ctx.agent.patch(`/api/boxes/${id}`).send({ locationId: 99999 }).expect(400);
     await ctx.agent.post('/api/boxes').send({ seriesId: 99999 }).expect(400);
 
+    // Delete = move to Trash: hidden from lists/lookups, restorable, then gone for good on purge.
     await ctx.agent.delete(`/api/boxes/${id}`).expect(204);
+    const trashed = (await ctx.agent.get(`/api/boxes/${id}`).expect(200)).body;
+    expect(trashed.deletedAt).not.toBeNull();
+    expect(
+      (await ctx.agent.get('/api/boxes').expect(200)).body.some((b: { id: number }) => b.id === id),
+    ).toBe(false);
+    await ctx.agent.get('/api/boxes/by-label/b1').expect(404);
+    const lookup = (await ctx.agent.get('/api/labels/lookup/B-001').expect(200)).body;
+    expect(lookup.box).toBeNull();
+    expect(lookup.trashedBox?.id).toBe(id);
+    // The number stays reserved while the box is in the Trash.
+    const clash = await ctx.agent
+      .post('/api/boxes')
+      .send({ seriesId: ids.b.id, number: 1 })
+      .expect(409);
+    expect(clash.body.error.details?.trashedBoxId).toBe(id);
+    const trash = (await ctx.agent.get('/api/trash').expect(200)).body;
+    expect(trash.boxes.map((b: { id: number }) => b.id)).toContain(id);
+    expect(trash.retentionDays).toBe(30);
+    const restored = (await ctx.agent.post(`/api/boxes/${id}/restore`).expect(200)).body;
+    expect(restored.deletedAt).toBeNull();
+    await ctx.agent.get('/api/boxes/by-label/b1').expect(200);
+    await ctx.agent.post(`/api/boxes/${id}/restore`).expect(404); // not in the Trash any more
+
+    await ctx.agent.delete(`/api/boxes/${id}`).expect(204);
+    await ctx.agent.delete('/api/trash').expect(200); // empty the Trash
     await ctx.agent.get(`/api/boxes/${id}`).expect(404);
+  });
+
+  it('bulk edits: set location / seal / open / trash', async () => {
+    const mk = async () =>
+      (await ctx.agent.post('/api/boxes').send({ seriesId: ids.b.id }).expect(201)).body
+        .id as number;
+    const [x, y] = [await mk(), await mk()];
+    await ctx.agent
+      .post('/api/boxes/bulk')
+      .send({ ids: [x, y], action: 'setLocation' })
+      .expect(400); // locationId required
+    let r = await ctx.agent
+      .post('/api/boxes/bulk')
+      .send({ ids: [x, y], action: 'setLocation', locationId: ids.garage.id })
+      .expect(200);
+    expect(r.body.updated).toBe(2);
+    r = await ctx.agent
+      .post('/api/boxes/bulk')
+      .send({ ids: [x, y], action: 'seal' })
+      .expect(200);
+    expect(r.body.updated).toBe(2);
+    const bx = (await ctx.agent.get(`/api/boxes/${x}`).expect(200)).body;
+    expect(bx).toMatchObject({ status: 'sealed', locationId: ids.garage.id });
+    r = await ctx.agent
+      .post('/api/boxes/bulk')
+      .send({ ids: [x], action: 'open' })
+      .expect(200);
+    expect(r.body.updated).toBe(1);
+    r = await ctx.agent
+      .post('/api/boxes/bulk')
+      .send({ ids: [x, y], action: 'trash' })
+      .expect(200);
+    expect(r.body.updated).toBe(2);
+    // Trashed boxes are skipped by further bulk edits.
+    r = await ctx.agent
+      .post('/api/boxes/bulk')
+      .send({ ids: [x, y], action: 'seal' })
+      .expect(200);
+    expect(r.body.updated).toBe(0);
+    await ctx.agent.delete(`/api/boxes/${x}?permanent=true`).expect(204);
+    await ctx.agent.delete(`/api/boxes/${y}?permanent=true`).expect(204);
   });
 
   it('assigns unique numbers under concurrent creation', async () => {
@@ -160,9 +233,8 @@ describe('boxes', () => {
       const labels = results.map((r) => r.body.labelId);
       expect(new Set(labels).size).toBe(25);
       const numbers = results.map((r) => r.body.number).sort((a, b) => a - b);
-      // Contiguous run following the previous B box (B-001 was deleted, next_number stayed at 2).
-      expect(numbers[0]).toBe(2);
-      expect(numbers[numbers.length - 1]).toBe(26);
+      // A contiguous run — no gaps, no duplicates.
+      expect(numbers[numbers.length - 1]! - numbers[0]!).toBe(24);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

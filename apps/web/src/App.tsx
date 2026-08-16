@@ -15,6 +15,7 @@ import { LabelsPage } from '@/pages/LabelsPage';
 import { ScanPage } from '@/pages/ScanPage';
 import { LocationsPage } from '@/pages/LocationsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { TrashPage } from '@/pages/TrashPage';
 
 export function App() {
   const auth = useAuthStatus();
@@ -81,6 +82,7 @@ export function App() {
           <Route path="labels" element={<LabelsPage />} />
           <Route path="scan" element={<ScanPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/trash" element={<TrashPage />} />
           <Route path="login" element={<AfterAuthRedirect />} />
           <Route path="setup" element={<AfterAuthRedirect />} />
           <Route path="*" element={<NotFound />} />

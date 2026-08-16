@@ -1,4 +1,5 @@
 import {
+  BoxBulkInput,
   BoxCreateInput,
   BoxListQuery,
   BoxUpdateInput,
@@ -15,14 +16,18 @@ import { badRequest, notFound, serviceUnavailable } from '../lib/errors.js';
 import { asyncHandler, idParam, parseBody, parseQuery } from '../lib/http.js';
 import type { AiService } from '../services/ai.js';
 import {
+  bulkUpdateBoxes,
   createBox,
-  deleteBox,
   getBoxDetail,
   getBoxSummaryByLabel,
   listBoxes,
   mapItem,
+  purgeBox,
   requireBox,
+  requireLiveBox,
+  restoreBox,
   toggleBoxStatus,
+  trashBoxes,
   updateBox,
 } from '../services/boxes.js';
 import {
@@ -65,6 +70,16 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
     }),
   );
 
+  // Bulk edit from the boxes list: set location / seal / open / move to Trash.
+  r.post(
+    '/bulk',
+    asyncHandler(async (req, res) => {
+      const input = parseBody(BoxBulkInput, req.body);
+      const updated = await bulkUpdateBoxes(db, input);
+      res.json({ updated });
+    }),
+  );
+
   // Case-insensitive label lookup used by QR deep links (/b/:labelId).
   r.get(
     '/by-label/:labelId',
@@ -72,7 +87,7 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
       const normalized = normalizeLabelId(String(req.params.labelId ?? ''));
       if (!normalized) throw badRequest('Invalid label');
       const box = await getBoxSummaryByLabel(db, normalized);
-      if (!box) throw notFound(`No box with label ${normalized}`);
+      if (!box || box.deletedAt) throw notFound(`No box with label ${normalized}`);
       res.json(box);
     }),
   );
@@ -101,12 +116,26 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
     }),
   );
 
+  // Default: move to the Trash (restorable for 30 days). ?permanent=true deletes for good.
   r.delete(
     '/:id',
     asyncHandler(async (req, res) => {
-      const { photoPaths } = await deleteBox(db, idParam(req.params.id));
-      await removeFiles(storage, photoPaths);
+      const id = idParam(req.params.id);
+      if (req.query.permanent === 'true') {
+        const { photoPaths } = await purgeBox(db, id);
+        await removeFiles(storage, photoPaths);
+      } else {
+        await requireBox(db, id);
+        await trashBoxes(db, [id]);
+      }
       res.status(204).end();
+    }),
+  );
+
+  r.post(
+    '/:id/restore',
+    asyncHandler(async (req, res) => {
+      res.json(await restoreBox(db, idParam(req.params.id)));
     }),
   );
 
@@ -117,6 +146,7 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
     upload.array('photos', 20),
     asyncHandler(async (req, res) => {
       const boxId = idParam(req.params.id);
+      await requireLiveBox(db, boxId);
       const files = (req.files as Express.Multer.File[] | undefined) ?? [];
       if (!files.length) throw badRequest('No photos uploaded (field name: photos)');
       // Validate/decode every file before writing anything, so a bad file rejects the whole batch.
@@ -145,16 +175,13 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
     upload.array('photos', 20),
     asyncHandler(async (req, res) => {
       const boxId = idParam(req.params.id);
-      await requireBox(db, boxId);
+      await requireLiveBox(db, boxId);
       const files = (req.files as Express.Multer.File[] | undefined) ?? [];
       if (!files.length) throw badRequest('No photos uploaded (field name: photos)');
       const replace = String(req.body?.replace ?? 'true') !== 'false';
-      // Decode the new photos FIRST — only then is it safe to remove the old ones.
+      // Decode the new photos FIRST — only then is it safe to retire the old ones (they go to the Trash).
       const prepared = await preparePhotos(files.map((f) => f.buffer));
-      if (replace) {
-        const { photoPaths } = await clearBoxPhotos(db, boxId);
-        await removeFiles(storage, photoPaths);
-      }
+      if (replace) await clearBoxPhotos(db, boxId);
       const created = [];
       for (const pf of prepared) created.push(await storePhoto(db, storage, boxId, pf));
       let queued = false;

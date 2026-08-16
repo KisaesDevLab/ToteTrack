@@ -1,4 +1,4 @@
-import type { BoxDetail } from '@totetrack/shared';
+import type { BoxDetail, Item } from '@totetrack/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -12,6 +12,7 @@ import {
   useDeletePhoto,
   useLocations,
   useReorderPhotos,
+  useRestoreBox,
   useSettings,
   useToggleBoxStatus,
   useUpdateBox,
@@ -35,6 +36,7 @@ import {
   StatusPill,
 } from '@/components/ui';
 import { errorMessage, useToast } from '@/lib/toast';
+import { BoxPicker } from '@/components/BoxPicker';
 
 export function BoxDetailPage() {
   const { id: idParam } = useParams();
@@ -73,6 +75,7 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
   const update = useUpdateBox(box.id);
   const toggle = useToggleBoxStatus(box.id);
   const remove = useDeleteBox();
+  const restore = useRestoreBox();
   const upload = useUploadPhotos(box.id);
   const reorder = useReorderPhotos(box.id);
   const deletePhoto = useDeletePhoto(box.id);
@@ -99,6 +102,9 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
   };
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(box.name ?? '');
+  const [openPhoto, setOpenPhoto] = useState<{ photoId: number; nonce: number } | null>(null);
+  const [movingItem, setMovingItem] = useState<Item | null>(null);
+  const livePhotoIds = new Set(box.photos.map((p) => p.id));
   const busy = update.isPending || toggle.isPending || reorder.isPending || deletePhoto.isPending;
 
   const saveName = () => {
@@ -109,6 +115,72 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
   };
 
   const onErr = (e: unknown) => toast.error(errorMessage(e));
+
+  if (box.deletedAt) {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          back={
+            <Link to="/boxes" className="btn-ghost -ml-2 px-2" aria-label="Back">
+              <ChevronLeft />
+            </Link>
+          }
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              <LabelChip label={box.labelId} size="lg" />
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-bad">
+                In Trash
+              </span>
+            </span>
+          }
+        />
+        <div className="card space-y-3 p-4">
+          <p className="text-sm">
+            <span className="font-semibold">{box.name || 'This box'}</span> was moved to the Trash
+            on {new Date(box.deletedAt).toLocaleString()}. It keeps its {box.photos.length} photo
+            {box.photos.length === 1 ? '' : 's'} and {box.items.length} item
+            {box.items.length === 1 ? '' : 's'} and will be deleted permanently after 30 days.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn-primary"
+              disabled={restore.isPending}
+              onClick={() =>
+                restore.mutate(box.id, {
+                  onSuccess: () => toast.success(`Restored ${box.labelId}`),
+                  onError: onErr,
+                })
+              }
+            >
+              Restore box
+            </button>
+            <button
+              className="btn-danger"
+              disabled={remove.isPending}
+              onClick={() => {
+                if (window.confirm(`Permanently delete ${box.labelId}? This cannot be undone.`))
+                  remove.mutate(
+                    { id: box.id, permanent: true },
+                    {
+                      onSuccess: () => {
+                        toast.success(`Deleted ${box.labelId} permanently`);
+                        navigate('/settings/trash', { replace: true });
+                      },
+                      onError: onErr,
+                    },
+                  );
+              }}
+            >
+              Delete permanently
+            </button>
+            <Link to="/settings/trash" className="btn-secondary">
+              Open Trash
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -228,6 +300,7 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
         photos={box.photos}
         aiAvailable={aiAvailable}
         busy={busy}
+        openRequest={openPhoto}
         onDelete={(pid) => deletePhoto.mutate(pid, { onError: onErr })}
         onReorder={(ids) => reorder.mutate(ids, { onError: onErr })}
         onAnalyze={(pid) =>
@@ -271,11 +344,34 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
       <ItemList
         items={box.items}
         busy={createItem.isPending || deleteItem.isPending || bulkDelete.isPending}
+        livePhotoIds={livePhotoIds}
         onCreate={(input) => createItem.mutateAsync(input)}
         onUpdate={(itemId, input) => updateItem.mutateAsync({ id: itemId, ...input })}
         onDelete={(itemId) => deleteItem.mutateAsync(itemId).catch(onErr)}
         onDeleteAllAi={() => bulkDelete.mutateAsync('ai').catch(onErr)}
+        onShowPhoto={(photoId) => setOpenPhoto({ photoId, nonce: Date.now() })}
+        onMove={(item) => setMovingItem(item)}
       />
+      {movingItem && (
+        <BoxPicker
+          title={`Move “${movingItem.name}” to…`}
+          excludeId={box.id}
+          busy={updateItem.isPending}
+          onClose={() => setMovingItem(null)}
+          onPick={(target) =>
+            updateItem.mutate(
+              { id: movingItem.id, boxId: target.id },
+              {
+                onSuccess: () => {
+                  toast.success(`Moved “${movingItem.name}” to ${target.labelId}`);
+                  setMovingItem(null);
+                },
+                onError: onErr,
+              },
+            )
+          }
+        />
+      )}
 
       <div className="flex items-center justify-between px-1 pt-2 text-xs text-ink-mute">
         <span>
@@ -291,16 +387,19 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
           onClick={() => {
             if (
               window.confirm(
-                `Delete box ${box.labelId} and all its photos and items? This cannot be undone.`,
+                `Move box ${box.labelId} (with its photos and items) to the Trash? You can restore it within 30 days.`,
               )
             ) {
-              remove.mutate(box.id, {
-                onSuccess: () => {
-                  toast.success(`Deleted ${box.labelId}`);
-                  navigate('/boxes', { replace: true });
+              remove.mutate(
+                { id: box.id },
+                {
+                  onSuccess: () => {
+                    toast.success(`${box.labelId} moved to Trash`);
+                    navigate('/boxes', { replace: true });
+                  },
+                  onError: onErr,
                 },
-                onError: onErr,
-              });
+              );
             }
           }}
         >

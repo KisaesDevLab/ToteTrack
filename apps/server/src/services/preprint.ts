@@ -1,5 +1,11 @@
-import { formatLabelId, type LabelLookup, type PreprintedLabel } from '@totetrack/shared';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import {
+  formatLabelId,
+  type LabelLookup,
+  type PreprintBatch,
+  type PreprintedLabel,
+} from '@totetrack/shared';
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { Db, Tx } from '../db/index.js';
 import { boxes, preprintedLabels, series } from '../db/schema.js';
 import type { PreprintedLabelRow } from '../db/schema.js';
@@ -16,6 +22,7 @@ function mapRow(r: PreprintedLabelRow & { seriesLetter: string }): PreprintedLab
     printedAt: r.printedAt.toISOString(),
     claimedBoxId: r.claimedBoxId,
     claimedAt: r.claimedAt ? r.claimedAt.toISOString() : null,
+    batchId: r.batchId,
   };
 }
 
@@ -27,7 +34,9 @@ export async function reservePreprinted(
   db: Db,
   seriesId: number,
   count: number,
+  templateId?: string,
 ): Promise<PreprintedLabel[]> {
+  const batchId = randomUUID();
   return db.transaction(async (tx) => {
     const [s] = await tx
       .select()
@@ -40,7 +49,9 @@ export async function reservePreprinted(
     const numbers = Array.from({ length: count }, (_, i) => first + i);
     const rows = await tx
       .insert(preprintedLabels)
-      .values(numbers.map((number) => ({ seriesId, number })))
+      .values(
+        numbers.map((number) => ({ seriesId, number, batchId, templateId: templateId ?? null })),
+      )
       .returning();
     await tx
       .update(series)
@@ -96,6 +107,63 @@ export async function listPreprinted(
   return rows.map((r) => mapRow({ ...r.row, seriesLetter: r.seriesLetter }));
 }
 
+/** Batches (labels printed together), newest first. Voided labels simply drop out of their batch. */
+export async function listPreprintBatches(db: Db, seriesId?: number): Promise<PreprintBatch[]> {
+  const rows = await db
+    .select({
+      batchId: preprintedLabels.batchId,
+      seriesId: preprintedLabels.seriesId,
+      seriesLetter: series.letter,
+      first: sql<number>`min(${preprintedLabels.number})`,
+      last: sql<number>`max(${preprintedLabels.number})`,
+      count: sql<number>`count(*)::int`,
+      unclaimed: sql<number>`count(*) FILTER (WHERE ${preprintedLabels.claimedAt} IS NULL)::int`,
+      printedAt: sql<Date>`min(${preprintedLabels.printedAt})`,
+      templateId: sql<string | null>`min(${preprintedLabels.templateId})`,
+    })
+    .from(preprintedLabels)
+    .innerJoin(series, eq(series.id, preprintedLabels.seriesId))
+    .where(
+      and(
+        sql`${preprintedLabels.batchId} IS NOT NULL`,
+        seriesId ? eq(preprintedLabels.seriesId, seriesId) : undefined,
+      ),
+    )
+    .groupBy(preprintedLabels.batchId, preprintedLabels.seriesId, series.letter)
+    .orderBy(desc(sql`min(${preprintedLabels.printedAt})`));
+  return rows.map((r) => ({
+    batchId: r.batchId!,
+    seriesId: r.seriesId,
+    seriesLetter: r.seriesLetter,
+    firstLabelId: formatLabelId(r.seriesLetter, Number(r.first)),
+    lastLabelId: formatLabelId(r.seriesLetter, Number(r.last)),
+    count: Number(r.count),
+    unclaimed: Number(r.unclaimed),
+    printedAt: new Date(r.printedAt).toISOString(),
+    templateId: r.templateId,
+  }));
+}
+
+/** Labels of one batch, in number order (optionally only the ones no box has claimed yet). */
+export async function listBatchLabels(
+  db: Db,
+  batchId: string,
+  opts: { unclaimedOnly?: boolean } = {},
+): Promise<PreprintedLabel[]> {
+  const rows = await db
+    .select({ row: preprintedLabels, seriesLetter: series.letter })
+    .from(preprintedLabels)
+    .innerJoin(series, eq(series.id, preprintedLabels.seriesId))
+    .where(
+      and(
+        eq(preprintedLabels.batchId, batchId),
+        opts.unclaimedOnly ? isNull(preprintedLabels.claimedAt) : undefined,
+      ),
+    )
+    .orderBy(asc(preprintedLabels.number));
+  return rows.map((r) => mapRow({ ...r.row, seriesLetter: r.seriesLetter }));
+}
+
 /** Voids a pre-printed label that was never stuck on a tote (e.g. misprint). */
 export async function deletePreprinted(db: Db, id: number): Promise<void> {
   const deleted = await db
@@ -105,9 +173,11 @@ export async function deletePreprinted(db: Db, id: number): Promise<void> {
   if (!deleted.length) throw notFound('Pre-printed label not found (or already claimed)');
 }
 
-/** Resolves a scanned label: existing box, pre-printed-but-unclaimed label, or unknown. */
+/** Resolves a scanned label: existing box, box in the Trash, pre-printed-but-unclaimed label, or unknown. */
 export async function lookupLabel(db: Db, normalized: string): Promise<LabelLookup> {
-  const box = await getBoxSummaryByLabel(db, normalized);
+  const found = await getBoxSummaryByLabel(db, normalized);
+  const box = found && !found.deletedAt ? found : null;
+  const trashedBox = found?.deletedAt ? found : null;
   const letter = normalized[0]!;
   const number = Number.parseInt(normalized.slice(2), 10);
   const [s] = await db.select().from(series).where(eq(series.letter, letter)).limit(1);
@@ -120,5 +190,5 @@ export async function lookupLabel(db: Db, normalized: string): Promise<LabelLook
       .limit(1);
     if (row) preprinted = mapRow({ ...row, seriesLetter: s.letter });
   }
-  return { labelId: normalized, box, preprinted, seriesId: s?.id ?? null };
+  return { labelId: normalized, box, trashedBox, preprinted, seriesId: s?.id ?? null };
 }

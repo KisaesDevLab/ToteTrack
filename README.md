@@ -55,7 +55,9 @@ Login is rate-limited per client address (5 failures / 15 min) plus a global cap
 
 ### Backups
 
-Two things hold state — back both up on the same schedule:
+**In-app (easiest):** Settings → **Backup & restore** → _Download backup (.zip)_ streams one archive with every table (as JSON) and every photo file. Restore it on the same or a fresh install (set a PIN first) with _Replace everything and restore_ — it needs the current PIN and replaces all boxes, items, photos and settings. Secrets (Anthropic key, tunnel token, session secret) and the PIN are deliberately **not** in the archive, so re-enter the key/token after restoring on another machine.
+
+**Host-level:** two things hold state — back both up on the same schedule:
 
 ```bash
 # database
@@ -66,7 +68,11 @@ docker run --rm -v totetrack_photos:/data -v "$PWD":/backup alpine tar czf /back
 
 Restore with `pg_restore -U tote -d totetrack --clean` and by untarring back into the volume. (Volume names are prefixed with the compose project name, e.g. `totetrack_photos` — check `docker volume ls`.)
 
-> The database dump contains the settings table — including the **Anthropic API key**, **tunnel token** and the **session secret** you entered in the UI (the PIN is stored only as an argon2 hash). Treat dumps like a password file: encrypt them (`age`, `gpg`) or keep them on a private disk.
+> A raw database dump contains the settings table — including the **Anthropic API key**, **tunnel token** and the **session secret** you entered in the UI (the PIN is stored only as an argon2 hash). Treat dumps like a password file: encrypt them (`age`, `gpg`) or keep them on a private disk. (The in-app zip omits those.)
+
+### Trash
+
+Deleting a box or a photo moves it to the **Trash** (Settings → Trash) where it can be restored for 30 days; a rescan's replaced photos land there too. Trashed boxes keep their label number reserved — scanning the label offers _Restore_. Everything older than 30 days is purged automatically (on start and every 6 hours); _Empty Trash_ purges now. Item deletes are immediate.
 
 ### What's configurable where
 
@@ -100,7 +106,13 @@ The intended packing loop is _print first, fill later_:
 
 Use the in-app **Scan** button (top bar) to read labels with a live camera preview and stay in the app between totes; the phone's own camera app works too. Camera access needs https (the tunnel hostname) or localhost — there's a type-the-label fallback.
 
-Unclaimed pre-printed labels are listed under the pre-print card (void a misprint there) and counted per series in Settings.
+Unclaimed pre-printed labels are listed under the pre-print card (void a misprint there) and counted per series in Settings. **Past batches** (same card) re-download an earlier batch after a printer jam — all labels or only the ones still blank.
+
+## Working with many boxes
+
+- **Boxes → Select** turns on checkboxes: set location, seal/unseal, print labels or trash several boxes at once.
+- Item row → tap → **Move to another box…** moves an item (its photo link stays with the old box). AI items show a 📷 button that jumps to the photo they were found in.
+- Lists load 50 at a time as you scroll (Boxes page and search results).
 
 ## Labels
 

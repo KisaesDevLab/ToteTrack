@@ -8,7 +8,7 @@ import { badRequest } from '../lib/errors.js';
 import { asyncHandler, parseBody, parseQuery } from '../lib/http.js';
 import { DEFAULT_SYSTEM_PROMPT, type AiService } from '../services/ai.js';
 import type { TunnelManager } from '../services/tunnel.js';
-import { boxSummaryColumns } from '../services/boxes.js';
+import { boxSummaryColumns, liveBoxes } from '../services/boxes.js';
 import { DEFAULT_LABEL_TEMPLATE, LABEL_TEMPLATES } from '../services/labels.js';
 import { searchBoxes } from '../services/search.js';
 import {
@@ -155,6 +155,7 @@ export function exportRouter(db: Db): Router {
         .select(boxSummaryColumns)
         .from(boxes)
         .leftJoin(locations, eq(locations.id, boxes.locationId))
+        .where(liveBoxes)
         .orderBy(asc(boxes.seriesLetter), asc(boxes.number));
       const out = [
         [
@@ -202,6 +203,7 @@ export function exportRouter(db: Db): Router {
         .from(items)
         .innerJoin(boxes, eq(boxes.id, items.boxId))
         .leftJoin(locations, eq(locations.id, boxes.locationId))
+        .where(liveBoxes)
         .orderBy(asc(boxes.seriesLetter), asc(boxes.number), asc(items.id));
       const out = [
         ['label', 'box_name', 'location', 'item', 'qty', 'note', 'source'],
@@ -232,6 +234,7 @@ export function exportRouter(db: Db): Router {
         .from(boxes)
         .leftJoin(locations, eq(locations.id, boxes.locationId))
         .leftJoin(items, eq(items.boxId, boxes.id))
+        .where(liveBoxes)
         .orderBy(asc(boxes.seriesLetter), asc(boxes.number), asc(items.id));
       const out = [
         ['label', 'box_name', 'location', 'status', 'description', 'item', 'qty', 'note', 'source'],

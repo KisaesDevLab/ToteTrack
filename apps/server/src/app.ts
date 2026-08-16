@@ -12,11 +12,13 @@ import type { Db } from './db/index.js';
 import type { Env } from './env.js';
 import { HttpError } from './lib/errors.js';
 import { logger } from './lib/logger.js';
+import { backupRouter } from './routes/backup.js';
 import { boxesRouter } from './routes/boxes.js';
 import { itemsRouter } from './routes/items.js';
 import { labelsRouter } from './routes/labels.js';
 import { exportRouter, searchRouter, settingsRouter } from './routes/misc.js';
 import { photosRouter } from './routes/photos.js';
+import { trashRouter } from './routes/trash.js';
 import { seriesRouter } from './routes/series.js';
 import { locationsRouter } from './routes/locations.js';
 import { AiService } from './services/ai.js';
@@ -134,6 +136,8 @@ export function createApp(deps: AppDeps): App {
   api.use('/labels', labelsRouter(db, env));
   api.use('/export', exportRouter(db));
   api.use('/settings', settingsRouter(db, env, ai, tunnel, APP_VERSION));
+  api.use('/trash', trashRouter(db, storage));
+  api.use('/backup', backupRouter(db, storage, pins, ai, APP_VERSION));
   app.use('/api', api);
 
   app.use('/api', (_req, res) => {

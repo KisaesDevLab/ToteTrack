@@ -1,7 +1,7 @@
 import { normalizeLabelId } from '@totetrack/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCreateBox, useLabelLookup, useSettings } from '@/api/hooks';
+import { useCreateBox, useLabelLookup, useRestoreBox, useSettings } from '@/api/hooks';
 import { EmptyState, ErrorNote, LabelChip, Spinner } from '@/components/ui';
 import { errorMessage, useToast } from '@/lib/toast';
 
@@ -19,6 +19,7 @@ export function LabelResolvePage() {
   const lookup = useLabelLookup(normalized ?? undefined);
   const settings = useSettings();
   const create = useCreateBox();
+  const restore = useRestoreBox();
   const started = useRef(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const createBox = create.mutate;
@@ -88,6 +89,37 @@ export function LabelResolvePage() {
     );
   }
   const data = lookup.data;
+  if (data?.trashedBox) {
+    const tb = data.trashedBox;
+    return (
+      <EmptyState
+        title={`${normalized} is in the Trash`}
+        body={`${tb.name ? `“${tb.name}” ` : 'This box '}was deleted on ${new Date(tb.deletedAt!).toLocaleDateString()}. Restore it to keep its ${tb.photoCount} photo${tb.photoCount === 1 ? '' : 's'} and ${tb.itemCount} item${tb.itemCount === 1 ? '' : 's'}, or open it to delete it for good.`}
+        action={
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              className="btn-primary"
+              disabled={restore.isPending}
+              onClick={() =>
+                restore.mutate(tb.id, {
+                  onSuccess: () => {
+                    toast.success(`Restored ${tb.labelId}`);
+                    navigate(`/boxes/${tb.id}`, { replace: true });
+                  },
+                  onError: (err) => toast.error(errorMessage(err)),
+                })
+              }
+            >
+              Restore box
+            </button>
+            <Link to={`/boxes/${tb.id}`} className="btn-secondary">
+              Open in Trash
+            </Link>
+          </div>
+        }
+      />
+    );
+  }
   const settingUp =
     !data || data.box || (data.preprinted && !data.preprinted.claimedBoxId && data.seriesId);
   if (settingUp) {

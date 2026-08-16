@@ -62,6 +62,22 @@ describe('pre-printed labels', () => {
     expect(res.headers['content-disposition']).toContain('totetrack-preprint-A-002-A-006.pdf');
     expect((await PDFDocument.load(res.body as Buffer)).getPageCount()).toBe(5);
 
+    // The batch can be re-downloaded (all labels, or only the ones still waiting).
+    const batches = (await ctx.agent.get('/api/labels/preprinted/batches').expect(200)).body;
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toMatchObject({
+      firstLabelId: 'A-002',
+      lastLabelId: 'A-006',
+      count: 5,
+      unclaimed: 5,
+      templateId: 'label-4x3',
+    });
+    const reprint = await pdfBuffer(
+      ctx.agent.post(`/api/labels/preprinted/batches/${batches[0].batchId}/pdf`).send({}),
+    ).expect(200);
+    expect((await PDFDocument.load(reprint.body as Buffer)).getPageCount()).toBe(5);
+    await ctx.agent.post('/api/labels/preprinted/batches/nope/pdf').send({}).expect(400);
+
     const list = (await ctx.agent.get('/api/labels/preprinted?unclaimed=true').expect(200)).body;
     expect(list.map((l: { labelId: string }) => l.labelId)).toEqual([
       'A-002',
@@ -107,11 +123,17 @@ describe('pre-printed labels', () => {
     const a4 = list.find((l: { labelId: string }) => l.labelId === 'A-004');
     await ctx.agent.delete(`/api/labels/preprinted/${a4.id}`).expect(404);
 
-    // Deleting the box returns its pre-printed label to the waiting pool; series delete is blocked
-    // while labels are waiting.
+    // While the box is in the Trash the label stays claimed (scanning offers Restore); purging the box
+    // returns its pre-printed label to the waiting pool. Series delete is blocked while labels wait.
     await ctx.agent.delete(`/api/boxes/${created.id}`).expect(204);
+    const inTrash = (await ctx.agent.get('/api/labels/lookup/A-004').expect(200)).body;
+    expect(inTrash.box).toBeNull();
+    expect(inTrash.trashedBox.id).toBe(created.id);
+    expect(inTrash.preprinted.claimedBoxId).toBe(created.id);
+    await ctx.agent.delete(`/api/boxes/${created.id}?permanent=true`).expect(204);
     const back = (await ctx.agent.get('/api/labels/lookup/A-004').expect(200)).body;
     expect(back.box).toBeNull();
+    expect(back.trashedBox).toBeNull();
     expect(back.preprinted.claimedBoxId).toBeNull();
     expect(back.preprinted.claimedAt).toBeNull();
     const blocked = await ctx.agent.delete(`/api/series/${ids.a.id}`).expect(409);
@@ -171,7 +193,10 @@ describe('rescan', () => {
       'Tent',
     ]);
     expect(detail.aiDescription).toBe('Now holds camping gear.');
-    await ctx.agent.get(`/api/photos/${oldPhotoId}/thumb`).expect(404);
+    // The replaced photo went to the Trash (still viewable there for 30 days).
+    await ctx.agent.get(`/api/photos/${oldPhotoId}/thumb`).expect(200);
+    const trash = (await ctx.agent.get('/api/trash').expect(200)).body;
+    expect(trash.photos.map((p: { id: number }) => p.id)).toContain(oldPhotoId);
 
     // replace=false keeps existing photos and appends.
     await ctx.agent

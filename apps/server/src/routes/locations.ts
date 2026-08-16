@@ -12,7 +12,7 @@ import {
 } from '../services/search-vector.js';
 
 // Explicit outer-table reference (see series.ts): `${locations.id}` would render unqualified here.
-const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.location_id = locations.id)`;
+const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.location_id = locations.id AND b.deleted_at IS NULL)`;
 
 function mapLocation(r: {
   id: number;

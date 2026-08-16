@@ -31,6 +31,10 @@ _Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-c
 - [ ] Edit an item, add a manual item, seal the box, change its location
 - [ ] Home search: item name buried in the AI description finds the box; `A-1` finds A-001…
 - [ ] Settings → Export → boxes.csv / items.csv open cleanly in Excel
+- [ ] Delete a box → Settings → Trash → Restore; scan a trashed label → Restore
+- [ ] Boxes → Select → two boxes → Set location / Seal / Print labels
+- [ ] Item → Move to another box…; AI item 📷 jumps to its photo
+- [ ] Settings → Backup → download zip → restore it (PIN) → data identical, still logged in
 - [ ] Settings → Sign out everywhere → other device is logged out (change PIN alone keeps sessions)
 - [ ] Restart the stack (`docker compose restart`) → photos + data persist; pending AI jobs resume
 

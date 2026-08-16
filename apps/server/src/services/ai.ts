@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AiAnalysis } from '@totetrack/shared';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { boxes, items, photos } from '../db/schema.js';
 import { logger } from '../lib/logger.js';
@@ -191,7 +191,7 @@ export class AiService {
     const pendingPhotos = await this.db
       .select({ id: photos.id })
       .from(photos)
-      .where(eq(photos.aiStatus, 'pending'))
+      .where(and(eq(photos.aiStatus, 'pending'), isNull(photos.deletedAt)))
       .orderBy(asc(photos.id));
     for (const p of pendingPhotos) this.push({ kind: 'photo', id: p.id });
     const pendingBoxes = await this.db
@@ -297,7 +297,7 @@ export class AiService {
 
   private async runPhoto(photoId: number): Promise<void> {
     const [p] = await this.db.select().from(photos).where(eq(photos.id, photoId)).limit(1);
-    if (!p) return; // deleted meanwhile (deletePhoto already recomputed the box status)
+    if (!p || p.deletedAt) return; // deleted meanwhile (trashPhoto already recomputed the box status)
     try {
       const model = await this.model();
       const image = await readForVision(this.storage, p.originalPath);
@@ -333,7 +333,7 @@ export class AiService {
         const summaries = await tx
           .select({ id: photos.id, d: photos.aiDescription })
           .from(photos)
-          .where(eq(photos.boxId, p.boxId))
+          .where(and(eq(photos.boxId, p.boxId), isNull(photos.deletedAt)))
           .orderBy(asc(photos.sortOrder), asc(photos.id));
         const parts = summaries.map((s) => s.d?.trim()).filter((s): s is string => Boolean(s));
         const combined = parts.join('\n\n');
@@ -376,7 +376,7 @@ export class AiService {
       const photoRows = await this.db
         .select()
         .from(photos)
-        .where(eq(photos.boxId, boxId))
+        .where(and(eq(photos.boxId, boxId), isNull(photos.deletedAt)))
         .orderBy(asc(photos.sortOrder), asc(photos.id));
       if (!photoRows.length) throw new Error('Box has no photos to analyze');
       const model = await this.model();
@@ -423,7 +423,9 @@ export class AiService {
     const stillPending = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(photos)
-      .where(and(eq(photos.boxId, boxId), eq(photos.aiStatus, 'pending')));
+      .where(
+        and(eq(photos.boxId, boxId), eq(photos.aiStatus, 'pending'), isNull(photos.deletedAt)),
+      );
     const pendingLeft = Number(stillPending[0]?.n ?? 0) > 0;
     await tx
       .update(boxes)

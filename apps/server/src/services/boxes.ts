@@ -7,7 +7,7 @@ import type {
   Item,
   Photo,
 } from '@totetrack/shared';
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import type { Db, Tx } from '../db/index.js';
 import { boxes, items, locations, photos, preprintedLabels, series } from '../db/schema.js';
 import type { ItemRow, PhotoRow } from '../db/schema.js';
@@ -31,6 +31,7 @@ export function mapPhoto(p: PhotoRow): Photo {
     aiStatus: p.aiStatus,
     aiError: p.aiError,
     createdAt: p.createdAt.toISOString(),
+    deletedAt: iso(p.deletedAt),
     ...photoUrls(p.id),
   };
 }
@@ -52,11 +53,15 @@ export function mapItem(i: ItemRow): Item {
 // --- summary select --------------------------------------------------------
 
 // Explicit `boxes.id` (not `${boxes.id}`) so these stay correct even in a join-less select.
-const photoCountSql = sql<number>`(SELECT count(*)::int FROM photos p WHERE p.box_id = boxes.id)`;
+// Trashed photos never count.
+const photoCountSql = sql<number>`(SELECT count(*)::int FROM photos p WHERE p.box_id = boxes.id AND p.deleted_at IS NULL)`;
 const itemCountSql = sql<number>`(SELECT count(*)::int FROM items i WHERE i.box_id = boxes.id)`;
 const firstPhotoIdSql = sql<
   number | null
->`(SELECT p.id FROM photos p WHERE p.box_id = boxes.id ORDER BY p.sort_order, p.id LIMIT 1)`;
+>`(SELECT p.id FROM photos p WHERE p.box_id = boxes.id AND p.deleted_at IS NULL ORDER BY p.sort_order, p.id LIMIT 1)`;
+
+/** Only live (not trashed) boxes. */
+export const liveBoxes = isNull(boxes.deletedAt);
 
 export const boxSummaryColumns = {
   id: boxes.id,
@@ -72,6 +77,7 @@ export const boxSummaryColumns = {
   aiError: boxes.aiError,
   aiDescription: boxes.aiDescription,
   printedAt: boxes.printedAt,
+  deletedAt: boxes.deletedAt,
   createdAt: boxes.createdAt,
   updatedAt: boxes.updatedAt,
   photoCount: photoCountSql,
@@ -93,6 +99,7 @@ type SummaryRow = {
   aiError: string | null;
   aiDescription: string | null;
   printedAt: Date | null;
+  deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   photoCount: number;
@@ -118,6 +125,7 @@ export function mapSummary(r: SummaryRow): BoxSummary {
     itemCount: Number(r.itemCount),
     thumbUrl: r.firstPhotoId ? photoUrls(r.firstPhotoId).thumbUrl : null,
     printedAt: iso(r.printedAt),
+    deletedAt: iso(r.deletedAt),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
@@ -133,7 +141,7 @@ function summaryQuery(db: Db | Tx) {
 // --- queries ---------------------------------------------------------------
 
 export async function listBoxes(db: Db, q: BoxListQuery): Promise<BoxSummary[]> {
-  const where: SQL[] = [];
+  const where: SQL[] = [liveBoxes];
   if (q.locationId) where.push(eq(boxes.locationId, q.locationId));
   if (q.seriesId) where.push(eq(boxes.seriesId, q.seriesId));
   if (q.status) where.push(eq(boxes.status, q.status));
@@ -147,7 +155,7 @@ export async function listBoxes(db: Db, q: BoxListQuery): Promise<BoxSummary[]> 
         : [asc(boxes.seriesLetter), asc(boxes.number)];
 
   const rows = await summaryQuery(db)
-    .where(where.length ? and(...where) : undefined)
+    .where(and(...where))
     .orderBy(...order)
     .limit(q.limit ?? 500)
     .offset(q.offset ?? 0);
@@ -157,7 +165,7 @@ export async function listBoxes(db: Db, q: BoxListQuery): Promise<BoxSummary[]> 
 export async function listBoxesByIds(db: Db, ids: number[]): Promise<BoxSummary[]> {
   if (ids.length === 0) return [];
   const rows = await summaryQuery(db)
-    .where(inArray(boxes.id, ids))
+    .where(and(inArray(boxes.id, ids), liveBoxes))
     .orderBy(asc(boxes.seriesLetter), asc(boxes.number));
   return rows.map(mapSummary);
 }
@@ -181,7 +189,7 @@ export async function getBoxDetail(db: Db, id: number): Promise<BoxDetail | null
     db
       .select()
       .from(photos)
-      .where(eq(photos.boxId, id))
+      .where(and(eq(photos.boxId, id), isNull(photos.deletedAt)))
       .orderBy(asc(photos.sortOrder), asc(photos.id)),
     db.select().from(items).where(eq(items.boxId, id)).orderBy(asc(items.id)),
   ]);
@@ -191,6 +199,13 @@ export async function getBoxDetail(db: Db, id: number): Promise<BoxDetail | null
 export async function requireBox(db: Db | Tx, id: number) {
   const [row] = await db.select().from(boxes).where(eq(boxes.id, id)).limit(1);
   if (!row) throw notFound('Box not found');
+  return row;
+}
+
+/** Like requireBox but rejects boxes sitting in the Trash (restore first). */
+export async function requireLiveBox(db: Db | Tx, id: number) {
+  const row = await requireBox(db, id);
+  if (row.deletedAt) throw conflict(`Box ${row.labelId} is in the Trash — restore it first`);
   return row;
 }
 
@@ -211,14 +226,19 @@ export async function createBox(db: Db, input: BoxCreateInput): Promise<BoxSumma
     const number = input.number ?? s.nextNumber;
     if (input.number !== undefined) {
       const [taken] = await tx
-        .select({ id: boxes.id })
+        .select({ id: boxes.id, deletedAt: boxes.deletedAt })
         .from(boxes)
         .where(and(eq(boxes.seriesId, s.id), eq(boxes.number, input.number)))
         .limit(1);
-      if (taken)
+      if (taken) {
+        const label = `${s.letter}-${String(input.number).padStart(3, '0')}`;
         throw conflict(
-          `Label ${s.letter}-${String(input.number).padStart(3, '0')} is already in use`,
+          taken.deletedAt
+            ? `Label ${label} belongs to a box in the Trash — restore it instead of creating a new one`
+            : `Label ${label} is already in use`,
+          taken.deletedAt ? { trashedBoxId: taken.id } : undefined,
         );
+      }
     }
     const [created] = await tx
       .insert(boxes)
@@ -272,7 +292,29 @@ export async function toggleBoxStatus(db: Db, id: number): Promise<BoxSummary> {
   return updateBox(db, id, { status: row.status === 'open' ? 'sealed' : 'open' });
 }
 
-export async function deleteBox(db: Db, id: number): Promise<{ photoPaths: string[] }> {
+/** Soft delete: the box (with its photos and items) moves to the Trash and can be restored. */
+export async function trashBoxes(db: Db, ids: number[]): Promise<number> {
+  if (!ids.length) return 0;
+  const rows = await db
+    .update(boxes)
+    .set({ deletedAt: sql`now()` as unknown as Date, updatedAt: sql`now()` as unknown as Date })
+    .where(and(inArray(boxes.id, ids), liveBoxes))
+    .returning({ id: boxes.id });
+  return rows.length;
+}
+
+export async function restoreBox(db: Db, id: number): Promise<BoxSummary> {
+  const [row] = await db
+    .update(boxes)
+    .set({ deletedAt: null, updatedAt: sql`now()` as unknown as Date })
+    .where(and(eq(boxes.id, id), isNotNull(boxes.deletedAt)))
+    .returning({ id: boxes.id });
+  if (!row) throw notFound('Box is not in the Trash');
+  return (await getBoxSummary(db, id))!;
+}
+
+/** Permanent delete (from the Trash, or straight away with ?permanent=true). Returns files to remove. */
+export async function purgeBox(db: Db, id: number): Promise<{ photoPaths: string[] }> {
   return db.transaction(async (tx) => {
     await requireBox(tx, id);
     const photoRows = await tx.select().from(photos).where(eq(photos.boxId, id));
@@ -283,6 +325,35 @@ export async function deleteBox(db: Db, id: number): Promise<{ photoPaths: strin
       .where(eq(preprintedLabels.claimedBoxId, id));
     await tx.delete(boxes).where(eq(boxes.id, id));
     return { photoPaths: photoRows.flatMap((p) => [p.originalPath, p.thumbPath]) };
+  });
+}
+
+/** Bulk edit for the boxes list (set location / seal / open / trash). Trashed boxes are skipped. */
+export async function bulkUpdateBoxes(
+  db: Db,
+  input: {
+    ids: number[];
+    action: 'setLocation' | 'seal' | 'open' | 'trash';
+    locationId?: number | null;
+  },
+): Promise<number> {
+  if (input.action === 'trash') return trashBoxes(db, input.ids);
+  return db.transaction(async (tx) => {
+    const set: Partial<typeof boxes.$inferInsert> = { updatedAt: sql`now()` as unknown as Date };
+    if (input.action === 'setLocation') {
+      if (input.locationId) await requireLocation(tx, input.locationId);
+      set.locationId = input.locationId ?? null;
+    } else {
+      set.status = input.action === 'seal' ? 'sealed' : 'open';
+    }
+    const rows = await tx
+      .update(boxes)
+      .set(set)
+      .where(and(inArray(boxes.id, input.ids), liveBoxes))
+      .returning({ id: boxes.id });
+    if (input.action === 'setLocation')
+      for (const r of rows) await refreshBoxSearchVector(tx, r.id);
+    return rows.length;
   });
 }
 

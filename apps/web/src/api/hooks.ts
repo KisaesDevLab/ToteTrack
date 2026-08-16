@@ -23,8 +23,20 @@ import type {
   SeriesCreateInput,
   SeriesUpdateInput,
   SettingsUpdateInput,
+  BackupRestoreResult,
+  BoxBulkInput,
+  PreprintBatch,
+  TrashContents,
 } from '@totetrack/shared';
-import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryOptions,
+} from '@tanstack/react-query';
+import type { PreprintReprintInput } from '@totetrack/shared';
+import type { z } from 'zod';
 import { api, del, download, get, patch, post, put } from './client';
 
 // --- keys --------------------------------------------------------------------
@@ -39,6 +51,8 @@ export const keys = {
   boxByLabel: (label: string) => ['box-by-label', label] as const,
   labelLookup: (label: string) => ['label-lookup', label] as const,
   preprinted: ['preprinted'] as const,
+  preprintBatches: ['preprint-batches'] as const,
+  trash: ['trash'] as const,
   search: (q: string, locationId?: number, status?: string) =>
     ['search', q, locationId ?? null, status ?? null] as const,
   templates: ['label-templates'] as const,
@@ -300,11 +314,92 @@ export function useToggleBoxStatus(id: number) {
   });
 }
 
+/** Moves a box to the Trash (default) or deletes it permanently. */
 export function useDeleteBox() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => del(`/api/boxes/${id}`),
-    onSuccess: () => invalidateBoxy(qc),
+    mutationFn: ({ id, permanent = false }: { id: number; permanent?: boolean }) =>
+      del(`/api/boxes/${id}${permanent ? '?permanent=true' : ''}`),
+    onSuccess: () => {
+      invalidateBoxy(qc);
+      void qc.invalidateQueries({ queryKey: keys.trash });
+    },
+  });
+}
+
+export function useRestoreBox() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => post<BoxSummary>(`/api/boxes/${id}/restore`),
+    onSuccess: () => {
+      invalidateBoxy(qc);
+      void qc.invalidateQueries({ queryKey: keys.trash });
+      void qc.invalidateQueries({ queryKey: ['label-lookup'] });
+    },
+  });
+}
+
+export function useBulkBoxes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: BoxBulkInput) => post<{ updated: number }>('/api/boxes/bulk', body),
+    onSuccess: () => {
+      invalidateBoxy(qc);
+      void qc.invalidateQueries({ queryKey: keys.trash });
+    },
+  });
+}
+
+/** Infinite list for the Boxes page: 50 at a time. */
+export function useInfiniteBoxes(q: Partial<BoxListQuery> = {}, pageSize = 50) {
+  return useInfiniteQuery({
+    queryKey: ['boxes', 'infinite', q, pageSize] as const,
+    queryFn: ({ pageParam }) =>
+      get<BoxSummary[]>(
+        `/api/boxes${qs({ ...(q as Record<string, string | number | boolean | undefined>), limit: pageSize, offset: pageParam })}`,
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => (last.length < pageSize ? undefined : all.length * pageSize),
+    staleTime: 15_000,
+  });
+}
+
+// --- trash -------------------------------------------------------------------
+
+export function useTrash() {
+  return useQuery({
+    queryKey: keys.trash,
+    queryFn: () => get<TrashContents>('/api/trash'),
+    staleTime: 5_000,
+  });
+}
+
+export function useEmptyTrash() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => del<{ boxes: number; photos: number }>('/api/trash'),
+    onSuccess: () => {
+      invalidateBoxy(qc);
+      void qc.invalidateQueries({ queryKey: keys.trash });
+    },
+  });
+}
+
+// --- backup ------------------------------------------------------------------
+
+export function useRestoreBackup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, pin }: { file: File; pin: string }) => {
+      const fd = new FormData();
+      fd.append('pin', pin);
+      fd.append('backup', file, file.name || 'backup.zip');
+      return api<BackupRestoreResult>('/api/backup/restore', { method: 'POST', formData: fd });
+    },
+    onSuccess: () => {
+      // Everything changed: forget every cached query except auth.
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== keys.auth[0] });
+    },
   });
 }
 
@@ -349,6 +444,26 @@ export function useReorderPhotos(boxId: number) {
       );
       invalidateBoxy(qc);
     },
+  });
+}
+
+export function useRestorePhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => post<Photo>(`/api/photos/${id}/restore`),
+    onSuccess: (photo) => {
+      void qc.invalidateQueries({ queryKey: keys.box(photo.boxId) });
+      void qc.invalidateQueries({ queryKey: keys.trash });
+      invalidateBoxy(qc);
+    },
+  });
+}
+
+export function usePurgePhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => del(`/api/photos/${id}?permanent=true`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: keys.trash }),
   });
 }
 
@@ -451,6 +566,32 @@ export function useSearch(
   });
 }
 
+/** Paged search: 50 at a time, "load more" as you scroll. */
+export function useInfiniteSearch(
+  q: string,
+  filters: { locationId?: number; status?: string } = {},
+  enabled = true,
+  pageSize = 50,
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      ...keys.search(q, filters.locationId, filters.status),
+      'infinite',
+      pageSize,
+    ] as const,
+    queryFn: ({ pageParam, signal }) =>
+      get<SearchResult[]>(
+        `/api/search${qs({ q, locationId: filters.locationId, status: filters.status, limit: pageSize, offset: pageParam })}`,
+        signal,
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => (last.length < pageSize ? undefined : all.length * pageSize),
+    enabled,
+    staleTime: 10_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
 // --- labels ------------------------------------------------------------------
 
 export function useLabelLookup(label: string | undefined) {
@@ -483,8 +624,31 @@ export function usePreprint() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.preprinted });
+      void qc.invalidateQueries({ queryKey: keys.preprintBatches });
       void qc.invalidateQueries({ queryKey: keys.series });
     },
+  });
+}
+
+export function usePreprintBatches() {
+  return useQuery({
+    queryKey: keys.preprintBatches,
+    queryFn: () => get<PreprintBatch[]>('/api/labels/preprinted/batches'),
+    staleTime: 15_000,
+  });
+}
+
+export function useReprintBatch() {
+  return useMutation({
+    mutationFn: ({
+      batchId,
+      ...body
+    }: z.input<typeof PreprintReprintInput> & { batchId: string }) =>
+      download(`/api/labels/preprinted/batches/${encodeURIComponent(batchId)}/pdf`, {
+        method: 'POST',
+        body,
+        filename: 'totetrack-reprint.pdf',
+      }),
   });
 }
 

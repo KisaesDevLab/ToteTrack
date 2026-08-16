@@ -108,7 +108,20 @@ describe('photos', () => {
     expect(reordered.body.map((p: { id: number }) => p.id)).toEqual([p2, p1]);
 
     await ctx.app.ai.idle();
+    // Delete = Trash: hidden from the box, files kept, restorable; purge removes files for good.
     await ctx.agent.delete(`/api/photos/${p2}`).expect(204);
+    expect(fs.readdirSync(`${ctx.photoDir}/${boxId}`).length).toBe(4);
+    let detail = (await ctx.agent.get(`/api/boxes/${boxId}`).expect(200)).body;
+    expect(detail.photos.map((p: { id: number }) => p.id)).toEqual([p1]);
+    expect(detail.photoCount).toBe(1);
+    const trash = (await ctx.agent.get('/api/trash').expect(200)).body;
+    expect(trash.photos.map((p: { id: number }) => p.id)).toContain(p2);
+    expect(trash.photos[0].boxLabelId).toBe(detail.labelId);
+    const restored = (await ctx.agent.post(`/api/photos/${p2}/restore`).expect(200)).body;
+    expect(restored.deletedAt).toBeNull();
+    detail = (await ctx.agent.get(`/api/boxes/${boxId}`).expect(200)).body;
+    expect(detail.photos).toHaveLength(2);
+    await ctx.agent.delete(`/api/photos/${p2}?permanent=true`).expect(204);
     expect(fs.readdirSync(`${ctx.photoDir}/${boxId}`).length).toBe(2);
     await ctx.agent.get(`/api/photos/${p2}/thumb`).expect(404);
   });

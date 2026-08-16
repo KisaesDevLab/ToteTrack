@@ -84,9 +84,9 @@ export async function searchBoxes(db: Db, q: SearchQuery): Promise<SearchResult[
       b.id, b.series_id, b.series_letter, b.number, b.label_id, b.name, b.location_id,
       l.name AS location_name, b.status, b.ai_status, b.ai_error, b.ai_description,
       b.printed_at, b.created_at, b.updated_at,
-      (SELECT count(*)::int FROM photos p WHERE p.box_id = b.id) AS photo_count,
+      (SELECT count(*)::int FROM photos p WHERE p.box_id = b.id AND p.deleted_at IS NULL) AS photo_count,
       (SELECT count(*)::int FROM items i WHERE i.box_id = b.id) AS item_count,
-      (SELECT p.id FROM photos p WHERE p.box_id = b.id ORDER BY p.sort_order, p.id LIMIT 1) AS first_photo_id,
+      (SELECT p.id FROM photos p WHERE p.box_id = b.id AND p.deleted_at IS NULL ORDER BY p.sort_order, p.id LIMIT 1) AS first_photo_id,
       ${rankExpr} AS rank,
       ${labelExactCond} AS label_exact,
       (${hasTerm} AND (${labelPrefixCond} OR b.label_id ILIKE ${like})) AS m_label,
@@ -97,9 +97,9 @@ export async function searchBoxes(db: Db, q: SearchQuery): Promise<SearchResult[
       ${headlineExpr} AS headline
     FROM boxes b
     LEFT JOIN locations l ON l.id = b.location_id
-    WHERE ${where}
+    WHERE b.deleted_at IS NULL AND ${where}
     ORDER BY label_exact DESC, rank DESC, b.updated_at DESC
-    LIMIT ${q.limit}
+    LIMIT ${q.limit} OFFSET ${q.offset}
   `);
 
   return result.rows.map((r) => {
@@ -128,6 +128,7 @@ export async function searchBoxes(db: Db, q: SearchQuery): Promise<SearchResult[
       itemCount: Number(r.item_count),
       thumbUrl: r.first_photo_id ? photoUrls(r.first_photo_id).thumbUrl : null,
       printedAt: r.printed_at ? new Date(r.printed_at).toISOString() : null,
+      deletedAt: null,
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString(),
       rank: Number(r.rank),

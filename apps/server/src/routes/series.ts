@@ -9,7 +9,7 @@ import { isUniqueViolation } from '../services/boxes.js';
 
 // NB: reference the outer table explicitly — in a join-less select Drizzle renders `${series.id}` as a bare
 // "id", which a correlated subquery would resolve to the inner table's column.
-const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.series_id = series.id)`;
+const boxCountSql = sql<number>`(SELECT count(*)::int FROM boxes b WHERE b.series_id = series.id AND b.deleted_at IS NULL)`;
 const unclaimedSql = sql<number>`(SELECT count(*)::int FROM preprinted_labels p WHERE p.series_id = series.id AND p.claimed_at IS NULL)`;
 
 function mapSeries(r: {

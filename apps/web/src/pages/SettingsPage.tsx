@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { download } from '@/api/client';
 import {
   useChangePin,
@@ -8,8 +9,10 @@ import {
   useLogout,
   useSignOutEverywhere,
   useRestartTunnel,
+  useRestoreBackup,
   useSeries,
   useSettings,
+  useTrash,
   useUpdateSeries,
   useUpdateSettings,
 } from '@/api/hooks';
@@ -40,6 +43,8 @@ export function SettingsPage() {
       <PublicUrlSection />
       <LabelSection />
       <ExportSection onError={(e) => toast.error(errorMessage(e))} />
+      <BackupSection />
+      <TrashSection />
       <PinSection />
       <AboutSection />
     </div>
@@ -652,6 +657,108 @@ function ExportSection({ onError }: { onError: (e: unknown) => void }) {
           (CSV)
         </button>
       </div>
+    </Section>
+  );
+}
+
+function BackupSection() {
+  const restore = useRestoreBackup();
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [pin, setPin] = useState('');
+
+  const doRestore = (e: FormEvent) => {
+    e.preventDefault();
+    if (!restoreFile) return;
+    if (
+      !window.confirm(
+        `Replace EVERYTHING in this ToteTrack with the contents of “${restoreFile.name}”? Current boxes, items and photos will be overwritten. Your PIN, API key and tunnel token are kept.`,
+      )
+    )
+      return;
+    restore.mutate(
+      { file: restoreFile, pin },
+      {
+        onSuccess: (r) => {
+          const n = Object.entries(r.restored)
+            .filter(([k]) => k !== 'settings')
+            .map(([k, v]) => `${v} ${k.replace('_', ' ')}`)
+            .join(', ');
+          toast.success(
+            `Restored ${n}${r.missingPhotoFiles ? ` — ${r.missingPhotoFiles} photo file(s) were missing from the archive` : ''}`,
+          );
+          setRestoreFile(null);
+          setPin('');
+          if (fileRef.current) fileRef.current.value = '';
+        },
+        onError: (err) => toast.error(errorMessage(err)),
+      },
+    );
+  };
+
+  return (
+    <Section
+      title="Backup & restore"
+      hint="One zip with every box, item, photo and setting. Secrets (API key, tunnel token) and the PIN are never included — re-enter them after restoring on a new machine."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Plain link so the browser streams the zip straight to disk (no in-memory blob). */}
+        <a href="/api/backup" download className="btn-secondary">
+          Download backup (.zip)
+        </a>
+        <span className="text-xs text-ink-mute">
+          Big libraries take a while — the download starts streaming immediately.
+        </span>
+      </div>
+      <form onSubmit={doRestore} className="space-y-2 rounded-xl border border-line p-3">
+        <div className="text-sm font-medium">Restore from a backup</div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".zip,application/zip"
+          className="block w-full text-sm"
+          onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className="input w-40"
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="Current PIN"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
+          <button
+            className="btn-danger"
+            disabled={!restoreFile || pin.length < 4 || restore.isPending}
+          >
+            {restore.isPending ? <Spinner className="h-4 w-4" /> : null} Replace everything and
+            restore
+          </button>
+        </div>
+        <p className="text-xs text-ink-mute">
+          Uploading and unpacking a large archive can take several minutes; keep this page open.
+        </p>
+      </form>
+    </Section>
+  );
+}
+
+function TrashSection() {
+  const trash = useTrash();
+  const n = (trash.data?.boxes.length ?? 0) + (trash.data?.photos.length ?? 0);
+  return (
+    <Section
+      title="Trash"
+      hint={`Deleted boxes and photos can be restored for ${trash.data?.retentionDays ?? 30} days.`}
+    >
+      <Link to="/settings/trash" className="btn-secondary inline-flex">
+        Open Trash{trash.data ? ` (${n})` : ''}
+      </Link>
     </Section>
   );
 }

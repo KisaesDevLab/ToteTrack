@@ -57,6 +57,8 @@ export const boxes = pgTable(
     aiStatus: aiStatusEnum('ai_status').notNull().default('none'),
     aiError: text('ai_error'),
     printedAt: timestamp('printed_at', { withTimezone: true }),
+    /** Soft delete: set while the box is in the Trash; purged after TRASH_RETENTION_DAYS. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -66,6 +68,7 @@ export const boxes = pgTable(
     uniqueIndex('boxes_label_id_uq').on(t.labelId),
     index('boxes_location_idx').on(t.locationId),
     index('boxes_series_idx').on(t.seriesId),
+    index('boxes_deleted_idx').on(t.deletedAt),
     index('boxes_search_gin').using('gin', t.searchVector),
     index('boxes_label_trgm').using('gin', sql`${t.labelId} gin_trgm_ops`),
   ],
@@ -87,9 +90,14 @@ export const photos = pgTable(
     aiError: text('ai_error'),
     /** Per-photo AI summary; box.ai_description is derived from these unless a box-level run replaced it. */
     aiDescription: text('ai_description'),
+    /** Soft delete: set while the photo is in the Trash (files kept until purge). */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('photos_box_idx').on(t.boxId, t.sortOrder)],
+  (t) => [
+    index('photos_box_idx').on(t.boxId, t.sortOrder),
+    index('photos_deleted_idx').on(t.deletedAt),
+  ],
 );
 
 export const items = pgTable(
@@ -126,10 +134,15 @@ export const preprintedLabels = pgTable(
     printedAt: timestamp('printed_at', { withTimezone: true }).notNull().defaultNow(),
     claimedBoxId: integer('claimed_box_id').references(() => boxes.id, { onDelete: 'set null' }),
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    /** Groups the labels printed together so a batch can be re-downloaded. */
+    batchId: text('batch_id'),
+    /** Template the batch was printed with (default for a reprint). */
+    templateId: text('template_id'),
   },
   (t) => [
     uniqueIndex('preprinted_series_number_uq').on(t.seriesId, t.number),
     index('preprinted_unclaimed_idx').on(t.seriesId, t.claimedAt),
+    index('preprinted_batch_idx').on(t.batchId),
   ],
 );
 

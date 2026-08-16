@@ -9,6 +9,7 @@ import { loadEnv } from './env.js';
 import { logger } from './lib/logger.js';
 import { ensurePhotoDir } from './services/photos.js';
 import { resolveSessionSecret } from './services/settings.js';
+import { schedulePurge } from './services/trash.js';
 
 async function main() {
   const env = loadEnv();
@@ -34,6 +35,9 @@ async function main() {
       { state: tunnelStatus.state, source: tunnelStatus.tokenSource },
       'cloudflare tunnel',
     );
+
+  // Empty the Trash of items past the retention period (now, then every 6 h).
+  schedulePurge(handle.db, storage);
 
   const recovered = await ai.recoverPending();
   if (recovered) logger.info({ recovered }, 're-queued pending AI jobs');

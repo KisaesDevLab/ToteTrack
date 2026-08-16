@@ -3,11 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Photo } from '@totetrack/shared';
 import type { Db } from '../db/index.js';
 import { boxes, items, photos } from '../db/schema.js';
-import { notFound, unsupportedMedia } from '../lib/errors.js';
+import { conflict, notFound, unsupportedMedia } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
 import { mapPhoto, requireBox } from './boxes.js';
 import { refreshBoxSearchVector } from './search-vector.js';
@@ -140,7 +140,7 @@ export async function listPhotos(db: Db, boxId: number): Promise<Photo[]> {
   const rows = await db
     .select()
     .from(photos)
-    .where(eq(photos.boxId, boxId))
+    .where(and(eq(photos.boxId, boxId), isNull(photos.deletedAt)))
     .orderBy(asc(photos.sortOrder), asc(photos.id));
   return rows.map(mapPhoto);
 }
@@ -158,18 +158,23 @@ export async function reorderPhotos(db: Db, boxId: number, ids: number[]): Promi
 }
 
 /**
- * Deletes a photo and the AI-sourced items that were derived from it (their evidence is gone);
+ * Moves a photo to the Trash (soft delete; files kept until purge). The AI-sourced items derived
+ * from it are removed for good (their evidence is gone — restoring the photo lets you re-run AI);
  * manual items are never touched. The box description is rebuilt from the remaining photos.
  */
-export async function deletePhoto(db: Db, storage: PhotoStorage, id: number): Promise<number> {
+export async function trashPhoto(db: Db, id: number): Promise<number> {
   const row = await getPhotoRow(db, id);
+  if (row.deletedAt) return row.boxId;
   await db.transaction(async (tx) => {
     await tx.delete(items).where(and(eq(items.photoId, id), eq(items.source, 'ai')));
-    await tx.delete(photos).where(eq(photos.id, id));
+    await tx
+      .update(photos)
+      .set({ deletedAt: sql`now()` as unknown as Date })
+      .where(eq(photos.id, id));
     const remaining = await tx
       .select({ d: photos.aiDescription })
       .from(photos)
-      .where(eq(photos.boxId, row.boxId))
+      .where(and(eq(photos.boxId, row.boxId), isNull(photos.deletedAt)))
       .orderBy(asc(photos.sortOrder), asc(photos.id));
     const summaries = remaining.map((r) => r.d?.trim()).filter((d): d is string => Boolean(d));
     const [box] = await tx
@@ -189,7 +194,9 @@ export async function deletePhoto(db: Db, storage: PhotoStorage, id: number): Pr
     const [pend] = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(photos)
-      .where(and(eq(photos.boxId, row.boxId), eq(photos.aiStatus, 'pending')));
+      .where(
+        and(eq(photos.boxId, row.boxId), eq(photos.aiStatus, 'pending'), isNull(photos.deletedAt)),
+      );
     if (Number(pend?.n ?? 0) === 0) {
       await tx
         .update(boxes)
@@ -200,23 +207,71 @@ export async function deletePhoto(db: Db, storage: PhotoStorage, id: number): Pr
     }
     await refreshBoxSearchVector(tx, row.boxId);
   });
-  await removeFiles(storage, [row.originalPath, row.thumbPath]);
   return row.boxId;
 }
 
-/** Removes every photo of a box plus its AI-derived items and description (manual items stay). Returns file paths to delete. */
+/** Brings a trashed photo back (appended at the end of the box's photo strip). */
+export async function restorePhoto(db: Db, id: number): Promise<Photo> {
+  const row = await getPhotoRow(db, id);
+  if (!row.deletedAt) return mapPhoto(row);
+  const [box] = await db
+    .select({ deletedAt: boxes.deletedAt })
+    .from(boxes)
+    .where(eq(boxes.id, row.boxId))
+    .limit(1);
+  if (box?.deletedAt) throw conflict('Restore the box first — it is in the Trash');
+  const [mx] = await db
+    .select({ max: sql<number | null>`max(${photos.sortOrder})` })
+    .from(photos)
+    .where(and(eq(photos.boxId, row.boxId), isNull(photos.deletedAt)));
+  const [updated] = await db
+    .update(photos)
+    .set({ deletedAt: null, sortOrder: Number(mx?.max ?? -1) + 1 })
+    .where(eq(photos.id, id))
+    .returning();
+  await refreshBoxSearchVector(db, row.boxId);
+  return mapPhoto(updated!);
+}
+
+/** Permanently deletes a photo row; returns its file paths (remove them after the row is gone). */
+export async function purgePhoto(
+  db: Db,
+  id: number,
+): Promise<{ photoPaths: string[]; boxId: number }> {
+  const row = await getPhotoRow(db, id);
+  if (!row.deletedAt) await trashPhoto(db, id); // detach items / rebuild description first
+  await db.delete(photos).where(eq(photos.id, id));
+  return { photoPaths: [row.originalPath, row.thumbPath], boxId: row.boxId };
+}
+
+/** Photos in the Trash whose box is still live (trashed boxes list as boxes). */
+export async function listTrashedPhotos(db: Db) {
+  return db
+    .select({ photo: photos, boxLabelId: boxes.labelId, boxName: boxes.name })
+    .from(photos)
+    .innerJoin(boxes, eq(boxes.id, photos.boxId))
+    .where(and(isNotNull(photos.deletedAt), isNull(boxes.deletedAt)))
+    .orderBy(sql`${photos.deletedAt} DESC`);
+}
+
+/**
+ * Rescan: moves every photo of a box to the Trash and drops its AI-derived items and description
+ * (manual items stay). Nothing is deleted from disk here — purge does that after the retention period.
+ */
 export async function clearBoxPhotos(db: Db, boxId: number): Promise<{ photoPaths: string[] }> {
-  return db.transaction(async (tx) => {
-    const rows = await tx.select().from(photos).where(eq(photos.boxId, boxId));
+  await db.transaction(async (tx) => {
     await tx.delete(items).where(and(eq(items.boxId, boxId), eq(items.source, 'ai')));
-    await tx.delete(photos).where(eq(photos.boxId, boxId));
+    await tx
+      .update(photos)
+      .set({ deletedAt: sql`now()` as unknown as Date })
+      .where(and(eq(photos.boxId, boxId), isNull(photos.deletedAt)));
     await tx
       .update(boxes)
       .set({ aiDescription: null, aiStatus: 'none', aiError: null })
       .where(eq(boxes.id, boxId));
     await refreshBoxSearchVector(tx, boxId);
-    return { photoPaths: rows.flatMap((p) => [p.originalPath, p.thumbPath]) };
   });
+  return { photoPaths: [] };
 }
 
 export async function removeFiles(storage: PhotoStorage, rels: string[]): Promise<void> {
