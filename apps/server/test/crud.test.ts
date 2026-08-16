@@ -1,5 +1,13 @@
+import type http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext, seedBasics, setupAndLogin, type TestContext } from './helpers.js';
+import {
+  createTestContext,
+  seedBasics,
+  setupAndLogin,
+  TEST_PIN,
+  type TestContext,
+} from './helpers.js';
 
 let ctx: TestContext;
 let ids: Awaited<ReturnType<typeof seedBasics>>;
@@ -100,16 +108,44 @@ describe('boxes', () => {
   });
 
   it('assigns unique numbers under concurrent creation', async () => {
-    const results = await Promise.all(
-      Array.from({ length: 25 }, () => ctx.agent.post('/api/boxes').send({ seriesId: ids.b.id })),
-    );
-    for (const r of results) expect(r.status).toBe(201);
-    const labels = results.map((r) => r.body.labelId as string);
-    expect(new Set(labels).size).toBe(25);
-    const numbers = results.map((r) => r.body.number as number).sort((a, b) => a - b);
-    // Contiguous run following the previous B box (B-001 was deleted, next_number stayed at 2).
-    expect(numbers[0]).toBe(2);
-    expect(numbers[numbers.length - 1]).toBe(26);
+    // One real listening server + fetch: 25 truly concurrent requests against the same process
+    // (supertest spins up a listener per request, which is flaky under parallel load on CI).
+    const server = await new Promise<http.Server>((resolve) => {
+      const srv = ctx.app.app.listen(0, '127.0.0.1', () => resolve(srv));
+    });
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const login = await fetch(`${base}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pin: TEST_PIN }),
+      });
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+      const results = await Promise.all(
+        Array.from({ length: 25 }, async () => {
+          const res = await fetch(`${base}/api/boxes`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', cookie },
+            body: JSON.stringify({ seriesId: ids.b.id }),
+          });
+          return {
+            status: res.status,
+            body: (await res.json()) as { labelId: string; number: number },
+          };
+        }),
+      );
+      for (const r of results) expect(r.status).toBe(201);
+      const labels = results.map((r) => r.body.labelId);
+      expect(new Set(labels).size).toBe(25);
+      const numbers = results.map((r) => r.body.number).sort((a, b) => a - b);
+      // Contiguous run following the previous B box (B-001 was deleted, next_number stayed at 2).
+      expect(numbers[0]).toBe(2);
+      expect(numbers[numbers.length - 1]).toBe(26);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it('list filters and sorting', async () => {
