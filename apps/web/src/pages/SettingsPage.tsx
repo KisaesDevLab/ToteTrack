@@ -558,7 +558,31 @@ function LabelSection() {
   const toast = useToast();
   if (!settings.data) return null;
   return (
-    <Section title="Labels" hint="Default sheet used by the print queue.">
+    <Section
+      title="Labels & scanning"
+      hint="Default sheet used by the print queue, and what happens after a scan."
+    >
+      <label className="flex items-center justify-between gap-3 text-sm">
+        <span>
+          Open the camera panel after scanning a label
+          <span className="block text-xs text-ink-mute">
+            Scan → box opens with Scan/Rescan ready, one tap from taking the photo. Turn off to just
+            view the box.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          className="h-5 w-5 accent-accent"
+          checked={settings.data.scanOpensCamera}
+          disabled={update.isPending}
+          onChange={(e) =>
+            update.mutate(
+              { scanOpensCamera: e.target.checked },
+              { onError: (err) => toast.error(errorMessage(err)) },
+            )
+          }
+        />
+      </label>
       <select
         className="input"
         value={settings.data.defaultLabelTemplate}

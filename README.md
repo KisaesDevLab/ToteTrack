@@ -94,7 +94,9 @@ The intended packing loop is _print first, fill later_:
 
 1. **Print labels → Pre-print blank labels**: pick a series and a count (e.g. 30). The next 30 numbers are reserved (auto-numbering skips them) and a PDF of blank labels downloads. Stick them on empty totes.
 2. Pack a tote, then **scan its label** with the phone camera. Because the label is pre-printed and unclaimed, the box is created with that exact number and opens straight into **Scan the contents**: take one or more photos and the AI lists the items and writes the description (or add items by hand if AI is off).
-3. When a tote is repacked, open it (scan the label again) and tap **Rescan**: fresh photos replace the previous ones and the AI-suggested items; manual items are kept. Untick _Replace_ to add photos alongside the old ones instead.
+3. When a tote is repacked, scan its label again: the **Rescan** panel opens by itself (Settings → _Open the camera panel after scanning_). Take one or several photos, tap **Save & analyze** — the fresh photos replace the previous ones and the AI-suggested items; manual items are kept. Untick _Replace_ to add photos alongside the old ones instead.
+
+Use the in-app **Scan** button (top bar) to read labels with a live camera preview and stay in the app between totes; the phone's own camera app works too. Camera access needs https (the tunnel hostname) or localhost — there's a type-the-label fallback.
 
 Unclaimed pre-printed labels are listed under the pre-print card (void a misprint there) and counted per series in Settings.
 

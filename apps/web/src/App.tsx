@@ -12,6 +12,7 @@ import { BoxesPage } from '@/pages/BoxesPage';
 import { HomePage } from '@/pages/HomePage';
 import { LabelResolvePage } from '@/pages/LabelResolvePage';
 import { LabelsPage } from '@/pages/LabelsPage';
+import { ScanPage } from '@/pages/ScanPage';
 import { LocationsPage } from '@/pages/LocationsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 
@@ -78,6 +79,7 @@ export function App() {
           <Route path="b/:labelId" element={<LabelResolvePage />} />
           <Route path="locations" element={<LocationsPage />} />
           <Route path="labels" element={<LabelsPage />} />
+          <Route path="scan" element={<ScanPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="login" element={<AfterAuthRedirect />} />
           <Route path="setup" element={<AfterAuthRedirect />} />

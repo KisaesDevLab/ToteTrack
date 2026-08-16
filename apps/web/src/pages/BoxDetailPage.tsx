@@ -87,7 +87,7 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
   const [params, setParams] = useSearchParams();
   // ?capture=1 is set right after a pre-printed label is scanned: open the guided capture panel.
   const [scanMode, setScanMode] = useState<'capture' | 'rescan' | null>(
-    params.get('capture') === '1' ? 'capture' : null,
+    params.get('capture') === '1' ? (box.photos.length ? 'rescan' : 'capture') : null,
   );
   const closeScan = () => {
     setScanMode(null);

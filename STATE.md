@@ -1,6 +1,6 @@
 # STATE.md
 
-_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. Pre-printed labels (print → scan → capture) and Rescan added; all configuration lives in Settings; `docker compose up -d` needs no .env._
+_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. Pre-printed labels, Rescan, in-app QR scanner, auto-open capture and multi-shot added; all configuration lives in Settings; `docker compose up -d` needs no .env._
 
 ## Where things stand
 

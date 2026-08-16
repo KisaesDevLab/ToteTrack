@@ -10,7 +10,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       // Same-origin in dev too: cookies + relative URLs just work.
-      '/api': { target: 'http://localhost:3000', changeOrigin: false },
+      '/api': { target: process.env.API_TARGET ?? 'http://localhost:3000', changeOrigin: false },
     },
   },
   build: { outDir: 'dist', sourcemap: false, emptyOutDir: true },

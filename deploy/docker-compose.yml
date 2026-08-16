@@ -26,14 +26,20 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TRUST_PROXY: ${TRUST_PROXY:-1}
       PHOTO_DIR: /data/photos
-      PORT: "3000"
+      PORT: '3000'
     ports:
       # 0.0.0.0 so phones on your LAN can reach it; the Cloudflare tunnel (Settings) works either way.
-      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000"
+      - '${APP_BIND:-0.0.0.0}:${APP_PORT:-3000}:3000'
     volumes:
       - photos:/data/photos
     healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -49,7 +55,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tote -d totetrack"]
+      test: ['CMD-SHELL', 'pg_isready -U tote -d totetrack']
       interval: 10s
       timeout: 5s
       retries: 10

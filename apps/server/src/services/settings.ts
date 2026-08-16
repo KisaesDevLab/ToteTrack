@@ -16,6 +16,7 @@ export const SETTING_KEYS = {
   publicUrl: 'public_url',
   sessionSecret: 'session_secret',
   tunnelToken: 'cloudflare_tunnel_token',
+  scanOpensCamera: 'scan_opens_camera',
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];

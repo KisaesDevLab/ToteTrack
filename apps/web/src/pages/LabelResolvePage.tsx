@@ -1,7 +1,7 @@
 import { normalizeLabelId } from '@totetrack/shared';
 import { useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useCreateBox, useLabelLookup } from '@/api/hooks';
+import { useCreateBox, useLabelLookup, useSettings } from '@/api/hooks';
 import { EmptyState, ErrorNote, LabelChip, Spinner } from '@/components/ui';
 import { errorMessage, useToast } from '@/lib/toast';
 
@@ -17,6 +17,7 @@ export function LabelResolvePage() {
   const navigate = useNavigate();
   const toast = useToast();
   const lookup = useLabelLookup(normalized ?? undefined);
+  const settings = useSettings();
   const create = useCreateBox();
   const started = useRef(false);
 
@@ -24,8 +25,10 @@ export function LabelResolvePage() {
     const data = lookup.data;
     if (!data || started.current) return;
     if (data.box) {
+      if (settings.isPending) return; // need the scanOpensCamera preference first
       started.current = true;
-      navigate(`/boxes/${data.box.id}`, { replace: true });
+      const capture = settings.data?.scanOpensCamera !== false ? '?capture=1' : '';
+      navigate(`/boxes/${data.box.id}${capture}`, { replace: true });
       return;
     }
     if (data.preprinted && !data.preprinted.claimedBoxId && data.seriesId) {
@@ -44,7 +47,7 @@ export function LabelResolvePage() {
         },
       );
     }
-  }, [lookup.data, navigate, create, toast]);
+  }, [lookup.data, navigate, create, toast, settings.isPending, settings.data?.scanOpensCamera]);
 
   if (!normalized) {
     return (

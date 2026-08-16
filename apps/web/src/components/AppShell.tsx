@@ -21,9 +21,14 @@ export function AppShell() {
             </span>
             ToteTrack
           </NavLink>
-          <NavLink to="/labels" className="btn-ghost btn-sm text-xs">
-            <PrintIcon className="h-4 w-4" /> Print labels
-          </NavLink>
+          <div className="flex items-center gap-1">
+            <NavLink to="/scan" className="btn-accent btn-sm text-xs" title="Scan a tote label">
+              <CameraIcon className="h-4 w-4" /> Scan
+            </NavLink>
+            <NavLink to="/labels" className="btn-ghost btn-sm text-xs">
+              <PrintIcon className="h-4 w-4" /> Labels
+            </NavLink>
+          </div>
         </div>
       </header>
 

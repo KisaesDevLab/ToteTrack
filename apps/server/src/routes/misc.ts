@@ -61,6 +61,7 @@ export function settingsRouter(
       aiSystemPromptDefault: DEFAULT_SYSTEM_PROMPT,
       aiSystemPromptCustom: customPrompt !== null,
       defaultLabelTemplate: s[SETTING_KEYS.defaultLabelTemplate] ?? DEFAULT_LABEL_TEMPLATE,
+      scanOpensCamera: (s[SETTING_KEYS.scanOpensCamera] ?? 'true') === 'true',
       publicUrl: pub.url,
       publicUrlSource: pub.source,
       publicUrlEnv: env.PUBLIC_URL ?? null,
@@ -111,6 +112,12 @@ export function settingsRouter(
           throw badRequest('Unknown label template');
         await setSetting(db, SETTING_KEYS.defaultLabelTemplate, input.defaultLabelTemplate);
       }
+      if (input.scanOpensCamera !== undefined)
+        await setSetting(
+          db,
+          SETTING_KEYS.scanOpensCamera,
+          input.scanOpensCamera ? 'true' : 'false',
+        );
       if (input.cloudflareTunnelToken !== undefined) {
         if (input.cloudflareTunnelToken === null) await deleteSetting(db, SETTING_KEYS.tunnelToken);
         else await setSetting(db, SETTING_KEYS.tunnelToken, input.cloudflareTunnelToken);

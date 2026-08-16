@@ -31,6 +31,8 @@ Open questions and judgment calls made while building autonomously. Each entry s
 21. **Rescan** — replaces _all_ photos and AI items of the box and runs one box-level analysis (all new photos in a single request); manual items and the box's name/location/status are untouched. Old photo files are deleted (no history kept — say if you'd rather archive them).
 22. **Bug found while testing** — `boxCount` on the series and locations lists was computed by a correlated subquery whose `${table.id}` Drizzle rendered unqualified (join-less select), so it compared against the inner table's own id. Fixed with explicit table references + a regression test.
 
+23. **Streamlined scan loop** — (a) arriving via a QR scan opens the Scan/Rescan panel automatically (setting `scan_opens_camera`, default on); browsers won't open the camera without a tap, so "Take photo" is the one remaining tap; (b) in-app `/scan` page (BarcodeDetector where available, jsQR fallback, torch toggle, manual entry) — needs a secure context for `getUserMedia`; (c) multi-shot capture queues photos client-side and uploads once through the rescan endpoint (one combined AI request). Verified the decoder with a fake-camera MJPEG in headless Chromium; not yet on a real phone.
+
 ## Not verified (needs a human / real hardware)
 
 - **4×3 labels on your sheet-feed printer** — PDF geometry rendered and inspected (see `label-4x3` / `label-3x4`), but not printed on the actual device.

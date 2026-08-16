@@ -301,6 +301,8 @@ export const AppSettings = z.object({
   aiSystemPromptDefault: z.string(),
   aiSystemPromptCustom: z.boolean(),
   defaultLabelTemplate: z.string(),
+  /** Arriving at a box via a QR scan opens the Scan/Rescan panel automatically. */
+  scanOpensCamera: z.boolean(),
   /** Effective public origin used in QR codes. */
   publicUrl: z.string(),
   /** settings → PUBLIC_URL env → auto-detected from the request → localhost fallback */
@@ -342,6 +344,7 @@ export const SettingsUpdateInput = z.object({
   publicUrl: PublicUrl.nullable().optional(),
   /** Cloudflare tunnel connector token, or null to remove it (stops the tunnel). */
   cloudflareTunnelToken: z.string().trim().min(20).max(2000).nullable().optional(),
+  scanOpensCamera: z.boolean().optional(),
 });
 export type SettingsUpdateInput = z.infer<typeof SettingsUpdateInput>;
 
