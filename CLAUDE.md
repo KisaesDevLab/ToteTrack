@@ -50,4 +50,4 @@ Tests create/migrate `totetrack_test` themselves (`test/global-setup.ts`) and tr
 
 ## Out of scope for v1
 
-PWA/offline, move history, multi-user accounts, thermal printing, B2 photo offload, item check-in/out, non-QR barcodes.
+PWA/offline (explicitly declined by the user — do not propose), move history, multi-user accounts, thermal printing, B2 photo offload, item check-in/out, non-QR barcodes.
