@@ -14,16 +14,17 @@ import { refreshBoxSearchVector } from './search-vector.js';
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const THUMB_SIZE = 400;
+// NB: HEIC/HEIF (HEVC) is deliberately absent — sharp's prebuilt libvips cannot decode it. iOS transcodes
+// camera-roll HEICs to JPEG for <input type=file>, so phones are unaffected.
 const ALLOWED_MIME = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
-  'image/heic',
-  'image/heif',
   'image/gif',
   'image/avif',
   'image/tiff',
 ]);
+const UNSUPPORTED_MSG = 'Only JPEG, PNG, WebP, GIF, AVIF or TIFF images are supported';
 
 export interface PhotoStorage {
   root: string;
@@ -51,61 +52,82 @@ export async function ensurePhotoDir(storage: PhotoStorage): Promise<void> {
  * Validates the upload (real mime sniffing, not the client-provided type),
  * stores the original + a 400px WebP thumbnail under `<root>/<boxId>/`, and records the row.
  */
+/** A validated, decoded upload ready to be written. */
+export interface PreparedPhoto {
+  original: Buffer;
+  thumb: Buffer;
+  width: number | null;
+  height: number | null;
+}
+
+/**
+ * Sniffs the real type and fully decodes/re-encodes the image (JPEG original at full resolution +
+ * 400px WebP thumb). Throws 415 for anything that isn't a decodable supported image — call this for
+ * every file BEFORE doing anything destructive (e.g. rescan replacing old photos).
+ */
+export async function preparePhoto(buffer: Buffer): Promise<PreparedPhoto> {
+  const detected = await fileTypeFromBuffer(buffer);
+  if (!detected || !ALLOWED_MIME.has(detected.mime)) throw unsupportedMedia(UNSUPPORTED_MSG);
+  try {
+    const original = await sharp(buffer, { failOn: 'none' })
+      .rotate() // apply EXIF orientation
+      .jpeg({ quality: detected.mime === 'image/jpeg' ? 92 : 90 })
+      .toBuffer();
+    const thumb = await sharp(original)
+      .resize({ width: THUMB_SIZE, height: THUMB_SIZE, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer();
+    const meta = await sharp(original).metadata();
+    return { original, thumb, width: meta.width ?? null, height: meta.height ?? null };
+  } catch (err) {
+    logger.warn({ err, mime: detected.mime }, 'image decode failed');
+    throw unsupportedMedia(`${UNSUPPORTED_MSG} (this file could not be decoded)`);
+  }
+}
+
+export async function preparePhotos(buffers: Buffer[]): Promise<PreparedPhoto[]> {
+  const out: PreparedPhoto[] = [];
+  for (const b of buffers) out.push(await preparePhoto(b));
+  return out;
+}
+
+/** Writes a prepared photo under `<root>/<boxId>/` and records the row (files removed on DB failure). */
 export async function storePhoto(
   db: Db,
   storage: PhotoStorage,
   boxId: number,
-  buffer: Buffer,
+  prepared: PreparedPhoto,
 ): Promise<Photo> {
   await requireBox(db, boxId);
-  const detected = await fileTypeFromBuffer(buffer);
-  if (!detected || !ALLOWED_MIME.has(detected.mime)) {
-    throw unsupportedMedia(
-      'Only image uploads are supported (JPEG, PNG, WebP, HEIC, GIF, AVIF, TIFF)',
-    );
-  }
-
-  const image = sharp(buffer, { failOn: 'none' }).rotate(); // apply EXIF orientation
-  const meta = await image.metadata();
-
   const dir = String(boxId);
   const base = `${Date.now()}-${randomUUID().slice(0, 8)}`;
-  // Normalise originals to JPEG for consistent browser support (HEIC etc.), keeping full resolution.
   const originalRel = path.posix.join(dir, `${base}.jpg`);
   const thumbRel = path.posix.join(dir, `${base}.thumb.webp`);
   await fs.mkdir(storage.resolve(dir), { recursive: true });
-
-  const originalBuf =
-    detected.mime === 'image/jpeg'
-      ? await sharp(buffer).rotate().jpeg({ quality: 92 }).toBuffer()
-      : await image.clone().jpeg({ quality: 90 }).toBuffer();
-  const thumbBuf = await sharp(originalBuf)
-    .resize({ width: THUMB_SIZE, height: THUMB_SIZE, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toBuffer();
-  const originalMeta = await sharp(originalBuf).metadata();
-
-  await fs.writeFile(storage.resolve(originalRel), originalBuf);
-  await fs.writeFile(storage.resolve(thumbRel), thumbBuf);
-
-  const [mx] = await db
-    .select({ max: sql<number | null>`max(${photos.sortOrder})` })
-    .from(photos)
-    .where(eq(photos.boxId, boxId));
-  const sortOrder = Number(mx?.max ?? -1) + 1;
-
-  const [row] = await db
-    .insert(photos)
-    .values({
-      boxId,
-      sortOrder,
-      originalPath: originalRel,
-      thumbPath: thumbRel,
-      width: originalMeta.width ?? meta.width ?? null,
-      height: originalMeta.height ?? meta.height ?? null,
-    })
-    .returning();
-  return mapPhoto(row!);
+  await fs.writeFile(storage.resolve(originalRel), prepared.original);
+  await fs.writeFile(storage.resolve(thumbRel), prepared.thumb);
+  try {
+    const [mx] = await db
+      .select({ max: sql<number | null>`max(${photos.sortOrder})` })
+      .from(photos)
+      .where(eq(photos.boxId, boxId));
+    const sortOrder = Number(mx?.max ?? -1) + 1;
+    const [row] = await db
+      .insert(photos)
+      .values({
+        boxId,
+        sortOrder,
+        originalPath: originalRel,
+        thumbPath: thumbRel,
+        width: prepared.width,
+        height: prepared.height,
+      })
+      .returning();
+    return mapPhoto(row!);
+  } catch (err) {
+    await removeFiles(storage, [originalRel, thumbRel]);
+    throw err;
+  }
 }
 
 export async function getPhotoRow(db: Db, id: number) {
@@ -161,6 +183,19 @@ export async function deletePhoto(db: Db, storage: PhotoStorage, id: number): Pr
       await tx
         .update(boxes)
         .set({ aiDescription: summaries.length ? summaries.join('\n\n') : null })
+        .where(eq(boxes.id, row.boxId));
+    }
+    // If this photo's analysis was still pending, the box must not stay "pending" for it.
+    const [pend] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(photos)
+      .where(and(eq(photos.boxId, row.boxId), eq(photos.aiStatus, 'pending')));
+    if (Number(pend?.n ?? 0) === 0) {
+      await tx
+        .update(boxes)
+        .set({
+          aiStatus: sql`CASE WHEN ${boxes.aiStatus} = 'pending' THEN 'done'::ai_status ELSE ${boxes.aiStatus} END`,
+        })
         .where(eq(boxes.id, row.boxId));
     }
     await refreshBoxSearchVector(tx, row.boxId);

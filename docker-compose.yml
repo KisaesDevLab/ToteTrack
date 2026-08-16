@@ -22,7 +22,7 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
       CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      TRUST_PROXY: ${TRUST_PROXY:-1}
+      TRUST_PROXY: ${TRUST_PROXY:-loopback}
       PHOTO_DIR: /data/photos
       PORT: '3000'
     ports:

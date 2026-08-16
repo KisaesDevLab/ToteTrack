@@ -3,6 +3,7 @@ import { CameraIcon } from './AppShell';
 import { Spinner } from './ui';
 
 const MAX_BYTES = 20 * 1024 * 1024;
+const MAX_FILES = 20;
 
 export function PhotoUploader({
   onUpload,
@@ -21,6 +22,10 @@ export function PhotoUploader({
     setError(null);
     if (!list || !list.length) return;
     const files = Array.from(list);
+    if (files.length > MAX_FILES) {
+      setError(`Choose at most ${MAX_FILES} photos at a time`);
+      return;
+    }
     const tooBig = files.find((f) => f.size > MAX_BYTES);
     if (tooBig) {
       setError(`${tooBig.name} is larger than 20 MB`);
@@ -78,8 +83,8 @@ export function PhotoUploader({
       {error && <p className="mt-2 text-xs text-bad">{error}</p>}
       {!compact && (
         <p className="mt-2 text-xs text-ink-mute">
-          JPEG, PNG, HEIC or WebP up to 20 MB each. Photos are analyzed automatically when AI is
-          enabled.
+          JPEG, PNG or WebP up to 20 MB each (up to 20 at a time). Photos are analyzed automatically
+          when AI is enabled.
         </p>
       )}
     </div>

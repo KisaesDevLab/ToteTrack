@@ -233,6 +233,11 @@ describe('ai analysis', () => {
       (await import('drizzle-orm'))
         .sql`UPDATE photos SET ai_status = 'pending' WHERE id = ${photoId}`,
     );
+    // Box also marked pending: it must NOT be re-queued separately while one of its photos is pending
+    // (regression: the NOT EXISTS subquery used to compare against photos.id).
+    await ctx.handle.db.execute(
+      (await import('drizzle-orm')).sql`UPDATE boxes SET ai_status = 'pending' WHERE id = ${boxId}`,
+    );
     const n = await ctx.app.ai.recoverPending();
     expect(n).toBe(1);
     await ctx.app.ai.idle();

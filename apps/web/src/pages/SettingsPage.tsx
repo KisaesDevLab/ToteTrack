@@ -6,6 +6,7 @@ import {
   useDeleteSeries,
   useLabelTemplates,
   useLogout,
+  useSignOutEverywhere,
   useRestartTunnel,
   useSeries,
   useSettings,
@@ -25,6 +26,13 @@ export function SettingsPage() {
       <PageHeader title="Settings" />
       {settings.isError && (
         <ErrorNote message={errorMessage(settings.error)} retry={() => void settings.refetch()} />
+      )}
+      {settings.isPending && (
+        <div className="space-y-4" aria-busy="true" aria-label="Loading settings">
+          <div className="skeleton h-28" />
+          <div className="skeleton h-40" />
+          <div className="skeleton h-28" />
+        </div>
       )}
       <SeriesSection />
       <AiSection />
@@ -651,10 +659,21 @@ function ExportSection({ onError }: { onError: (e: unknown) => void }) {
 function PinSection() {
   const change = useChangePin();
   const logout = useLogout();
+  const signOutEverywhere = useSignOutEverywhere();
   const toast = useToast();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
+
+  const everywhere = () => {
+    const pin = window.prompt(
+      'Sign out every device (phones, tablets, this browser)? Enter the current PIN to confirm.',
+    );
+    if (!pin) return;
+    signOutEverywhere.mutate(pin, {
+      onError: (err) => toast.error(errorMessage(err)),
+    });
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -676,13 +695,14 @@ function PinSection() {
   return (
     <Section
       title="Security"
-      hint="One shared PIN for the household. Sessions last 30 days; changing the PIN does not log other devices out."
+      hint="One shared PIN for the household (digits only). Sessions last 30 days; changing the PIN does not log other devices out — use “Sign out everywhere” for that."
     >
       <form onSubmit={submit} className="grid gap-2 sm:grid-cols-3">
         <input
           className="input"
           type="password"
           inputMode="numeric"
+          pattern="[0-9]*"
           placeholder="Current PIN"
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
@@ -694,6 +714,7 @@ function PinSection() {
           className="input"
           type="password"
           inputMode="numeric"
+          pattern="[0-9]*"
           placeholder="New PIN"
           value={next}
           onChange={(e) => setNext(e.target.value)}
@@ -705,6 +726,7 @@ function PinSection() {
           className="input"
           type="password"
           inputMode="numeric"
+          pattern="[0-9]*"
           placeholder="Confirm new PIN"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
@@ -712,10 +734,20 @@ function PinSection() {
           minLength={4}
           autoComplete="new-password"
         />
-        <div className="sm:col-span-3 flex justify-between">
-          <button type="button" className="btn-ghost" onClick={() => logout.mutate()}>
-            Log out on this device
-          </button>
+        <div className="sm:col-span-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1">
+            <button type="button" className="btn-ghost" onClick={() => logout.mutate()}>
+              Log out on this device
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-bad"
+              disabled={signOutEverywhere.isPending}
+              onClick={everywhere}
+            >
+              Sign out everywhere
+            </button>
+          </div>
           <button
             className="btn-primary"
             disabled={change.isPending || !current || next.length < 4}

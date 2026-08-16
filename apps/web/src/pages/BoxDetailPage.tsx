@@ -257,7 +257,7 @@ function BoxDetailLoaded({ box }: { box: BoxDetail }) {
       <DescriptionCard
         box={box}
         aiAvailable={aiAvailable}
-        onSave={(text) => update.mutate({ aiDescription: text }, { onError: onErr })}
+        onSave={(text) => update.mutateAsync({ aiDescription: text })}
         onRerun={() =>
           analyzeBox.mutate(undefined, {
             onSuccess: () => toast.success('Analyzing all photos…'),
@@ -320,28 +320,48 @@ function DescriptionCard({
 }: {
   box: BoxDetail;
   aiAvailable: boolean;
-  onSave: (text: string | null) => void;
+  onSave: (text: string | null) => Promise<unknown>;
   onRerun: () => void;
   rerunning: boolean;
 }) {
   const [draft, setDraft] = useState(box.aiDescription ?? '');
-  const [dirty, setDirty] = useState(false);
+  const [status, setStatus] = useState<'synced' | 'dirty' | 'saving' | 'error'>('synced');
   const timer = useRef<ReturnType<typeof setTimeout>>();
+  /** What we last sent (trimmed) — a server value equal to it is our own save echoing back. */
+  const lastSent = useRef<string | null>(box.aiDescription ?? null);
+  const latestDraft = useRef(draft);
+  latestDraft.current = draft;
 
-  // Sync from server when not editing (e.g. AI finished).
+  // Adopt server changes (AI finished, another device edited) only when they are not our own echo
+  // and the user isn't mid-edit — the textarea stays authoritative while typing/saving.
   useEffect(() => {
-    if (!dirty) setDraft(box.aiDescription ?? '');
-  }, [box.aiDescription, dirty]);
+    const server = box.aiDescription ?? null;
+    if (status !== 'synced') return;
+    if (server === lastSent.current) return;
+    lastSent.current = server;
+    setDraft(server ?? '');
+  }, [box.aiDescription, status]);
+
+  const save = async (v: string) => {
+    const text = v.trim() || null;
+    lastSent.current = text;
+    setStatus('saving');
+    try {
+      await onSave(text);
+      // Only mark clean if nothing was typed while the request was in flight.
+      setStatus((cur) => (latestDraft.current === v ? 'synced' : cur === 'saving' ? 'dirty' : cur));
+    } catch {
+      setStatus('error');
+    }
+  };
 
   const change = (v: string) => {
     setDraft(v);
-    setDirty(true);
+    setStatus('dirty');
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      onSave(v.trim() || null);
-      setDirty(false);
-    }, 900);
+    timer.current = setTimeout(() => void save(v), 900);
   };
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   const pending = box.aiStatus === 'pending';
   return (
@@ -397,7 +417,24 @@ function DescriptionCard({
         onChange={(e) => change(e.target.value)}
         maxLength={20000}
       />
-      <div className="mt-1 text-right text-[11px] text-ink-mute">{dirty ? 'Saving…' : 'Saved'}</div>
+      <div
+        className={`mt-1 flex items-center justify-end gap-2 text-[11px] ${status === 'error' ? 'text-bad' : 'text-ink-mute'}`}
+      >
+        {status === 'synced' && 'Saved'}
+        {(status === 'dirty' || status === 'saving') && 'Saving…'}
+        {status === 'error' && (
+          <>
+            Save failed
+            <button
+              type="button"
+              className="font-semibold underline"
+              onClick={() => void save(latestDraft.current)}
+            >
+              Retry
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

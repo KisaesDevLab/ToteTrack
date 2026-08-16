@@ -6,7 +6,7 @@
   "description": "Self-hosted home inventory for storage totes",
   "packageManager": "pnpm@9.15.9",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm --filter @totetrack/server dev\" \"pnpm --filter @totetrack/web dev\"",

@@ -1,5 +1,5 @@
 import { normalizeLabelId } from '@totetrack/shared';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useCreateBox, useLabelLookup, useSettings } from '@/api/hooks';
 import { EmptyState, ErrorNote, LabelChip, Spinner } from '@/components/ui';
@@ -20,10 +20,12 @@ export function LabelResolvePage() {
   const settings = useSettings();
   const create = useCreateBox();
   const started = useRef(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const createBox = create.mutate;
 
   useEffect(() => {
     const data = lookup.data;
-    if (!data || started.current) return;
+    if (!data || started.current || createError) return;
     if (data.box) {
       if (settings.isPending) return; // need the scanOpensCamera preference first
       started.current = true;
@@ -33,21 +35,28 @@ export function LabelResolvePage() {
     }
     if (data.preprinted && !data.preprinted.claimedBoxId && data.seriesId) {
       started.current = true;
-      create.mutate(
+      createBox(
         { seriesId: data.seriesId, number: data.preprinted.number },
         {
           onSuccess: (box) => {
             toast.success(`Created ${box.labelId} — take a photo of the contents`);
             navigate(`/boxes/${box.id}?capture=1`, { replace: true });
           },
-          onError: (err) => {
-            started.current = false;
-            toast.error(errorMessage(err));
-          },
+          // No automatic retry: another phone may have claimed the label a moment ago (409), or the
+          // server may be unreachable. Show the error and let the user re-check.
+          onError: (err) => setCreateError(errorMessage(err)),
         },
       );
     }
-  }, [lookup.data, navigate, create, toast, settings.isPending, settings.data?.scanOpensCamera]);
+  }, [
+    lookup.data,
+    navigate,
+    createBox,
+    createError,
+    toast,
+    settings.isPending,
+    settings.data?.scanOpensCamera,
+  ]);
 
   if (!normalized) {
     return (
@@ -64,6 +73,19 @@ export function LabelResolvePage() {
   }
   if (lookup.isError) {
     return <ErrorNote message="Could not look up that label" retry={() => void lookup.refetch()} />;
+  }
+  if (createError) {
+    return (
+      <ErrorNote
+        message={`Could not set up box ${normalized}: ${createError}`}
+        retry={() => {
+          // Re-check the label: if another device already created the box we simply open it.
+          started.current = false;
+          setCreateError(null);
+          void lookup.refetch();
+        }}
+      />
+    );
   }
   const data = lookup.data;
   const settingUp =

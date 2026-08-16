@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import type { Db } from '../db/index.js';
-import { serviceUnavailable } from '../lib/errors.js';
+import { notFound, serviceUnavailable } from '../lib/errors.js';
 import { asyncHandler, idParam } from '../lib/http.js';
 import type { AiService } from '../services/ai.js';
 import { deletePhoto, getPhotoRow, type PhotoStorage } from '../services/photos.js';
@@ -56,6 +56,11 @@ export function photosRouter(db: Db, storage: PhotoStorage, ai: AiService): Rout
 
 function sendFile(res: Response, absPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    res.sendFile(absPath, (err) => (err ? reject(err) : resolve()));
+    res.sendFile(absPath, (err) => {
+      if (!err) return resolve();
+      const e = err as NodeJS.ErrnoException & { status?: number };
+      if (e.code === 'ENOENT' || e.status === 404) return reject(notFound('Photo file is missing'));
+      reject(err);
+    });
   });
 }

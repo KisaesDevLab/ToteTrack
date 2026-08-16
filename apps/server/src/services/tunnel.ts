@@ -37,8 +37,14 @@ export class TunnelManager {
   private backoffMs = 2_000;
   private restartTimer: NodeJS.Timeout | undefined;
   private tokenSource: 'env' | 'settings' | 'none' = 'none';
-  private stopping = false;
   private currentToken: string | undefined;
+  /** apply()/restart()/stop() are serialized so two settings changes can't race and spawn twins. */
+  private chain: Promise<unknown> = Promise.resolve();
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(fn, fn);
+    this.chain = next.catch(() => undefined);
+    return next;
+  }
 
   constructor(
     private readonly db: Db,
@@ -67,23 +73,29 @@ export class TunnelManager {
   }
 
   /** (Re)reads the token and starts, restarts or stops the connector to match. */
-  async apply(): Promise<TunnelStatus> {
+  apply(): Promise<TunnelStatus> {
+    return this.serialize(() => this.applyNow());
+  }
+
+  private async applyNow(): Promise<TunnelStatus> {
     const { token, source } = await effectiveTunnelToken(this.db, this.env);
     this.tokenSource = source;
     if (!token) {
-      await this.stop();
+      await this.stopNow();
+      this.currentToken = undefined;
       this.state = 'disabled';
       this.lastError = null;
       return this.status();
     }
     if (!this.binaryAvailable) {
-      await this.stop();
+      await this.stopNow();
+      this.currentToken = undefined;
       this.state = 'unavailable';
       this.lastError = `cloudflared binary not found at ${this.env.CLOUDFLARED_BIN}`;
       return this.status();
     }
     if (this.child && token === this.currentToken) return this.status();
-    await this.stop();
+    await this.stopNow();
     this.currentToken = token;
     this.restarts = 0;
     this.backoffMs = 2_000;
@@ -92,19 +104,29 @@ export class TunnelManager {
   }
 
   /** Manual restart from the UI. */
-  async restart(): Promise<TunnelStatus> {
-    await this.stop();
-    this.currentToken = undefined;
-    return this.apply();
+  restart(): Promise<TunnelStatus> {
+    return this.serialize(async () => {
+      await this.stopNow();
+      this.currentToken = undefined;
+      return this.applyNow();
+    });
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    return this.serialize(async () => {
+      await this.stopNow();
+      this.currentToken = undefined;
+    });
+  }
+
+  /** Stops the current child (if any). Its exit handler is disarmed so a late exit can't restart it. */
+  private async stopNow(): Promise<void> {
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = undefined;
     const child = this.child;
     if (!child) return;
-    this.stopping = true;
     this.child = undefined;
+    (child as ChildProcess & { __intentionalStop?: boolean }).__intentionalStop = true;
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => {
         child.kill('SIGKILL');
@@ -116,7 +138,6 @@ export class TunnelManager {
       });
       child.kill('SIGTERM');
     });
-    this.stopping = false;
     this.connectedSince = null;
   }
 
@@ -127,10 +148,14 @@ export class TunnelManager {
     this.push(`starting cloudflared (${this.env.CLOUDFLARED_BIN})`);
     let child: ChildProcess;
     try {
+      // Token goes via TUNNEL_TOKEN env only (not argv) so it isn't visible in `ps`/`docker top`.
       child = spawn(
         this.env.CLOUDFLARED_BIN,
-        ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:0', 'run', '--token', token],
-        { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TUNNEL_TOKEN: token } },
+        ['tunnel', '--no-autoupdate', '--metrics', '127.0.0.1:0', 'run'],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, TUNNEL_TOKEN: token },
+        },
       );
     } catch (err) {
       this.fail(`failed to start cloudflared: ${(err as Error).message}`);
@@ -146,8 +171,9 @@ export class TunnelManager {
     );
     child.on('error', (err) => this.fail(`cloudflared error: ${err.message}`));
     child.on('exit', (code, signal) => {
-      if (this.child === child) this.child = undefined;
-      if (this.stopping) return;
+      if ((child as ChildProcess & { __intentionalStop?: boolean }).__intentionalStop) return;
+      if (this.child !== child) return; // superseded by a newer connector
+      this.child = undefined;
       // Prefer a specific message already captured (e.g. "Provided Tunnel token is not valid.").
       const specific =
         this.lastError && !/^cloudflared exited/.test(this.lastError) ? this.lastError : null;

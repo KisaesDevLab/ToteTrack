@@ -107,6 +107,20 @@ describe('pre-printed labels', () => {
     const a4 = list.find((l: { labelId: string }) => l.labelId === 'A-004');
     await ctx.agent.delete(`/api/labels/preprinted/${a4.id}`).expect(404);
 
+    // Deleting the box returns its pre-printed label to the waiting pool; series delete is blocked
+    // while labels are waiting.
+    await ctx.agent.delete(`/api/boxes/${created.id}`).expect(204);
+    const back = (await ctx.agent.get('/api/labels/lookup/A-004').expect(200)).body;
+    expect(back.box).toBeNull();
+    expect(back.preprinted.claimedBoxId).toBeNull();
+    expect(back.preprinted.claimedAt).toBeNull();
+    const blocked = await ctx.agent.delete(`/api/series/${ids.a.id}`).expect(409);
+    expect(blocked.body.error.message).toMatch(/pre-printed|boxes/);
+
+    // Next number cannot be lowered into the reserved (pre-printed) range.
+    await ctx.agent.patch(`/api/series/${ids.a.id}`).send({ nextNumber: 5 }).expect(400);
+    await ctx.agent.patch(`/api/series/${ids.a.id}`).send({ nextNumber: 8 }).expect(200);
+
     // Unknown label in a known series / unknown series.
     const unknown = (await ctx.agent.get('/api/labels/lookup/A-050').expect(200)).body;
     expect(unknown).toMatchObject({ box: null, preprinted: null, seriesId: ids.a.id });
@@ -169,5 +183,15 @@ describe('rescan', () => {
     detail = (await ctx.agent.get(`/api/boxes/${box.id}`)).body;
     expect(detail.photos).toHaveLength(3);
     await ctx.agent.post(`/api/boxes/${box.id}/rescan`).expect(400);
+
+    // A rescan whose upload is invalid must NOT wipe the existing photos.
+    const bad = await ctx.agent
+      .post(`/api/boxes/${box.id}/rescan`)
+      .attach('photos', await makeJpeg(90, 90), 'ok.jpg')
+      .attach('photos', Buffer.from('not an image at all'), 'junk.jpg')
+      .expect(415);
+    expect(bad.body.error.code).toBe('unsupported_media_type');
+    detail = (await ctx.agent.get(`/api/boxes/${box.id}`)).body;
+    expect(detail.photos).toHaveLength(3);
   });
 });

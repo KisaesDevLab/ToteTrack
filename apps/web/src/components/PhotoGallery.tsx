@@ -27,14 +27,19 @@ export function PhotoGallery({
     if (!embla) return;
     const onSelect = () => setIndex(embla.selectedScrollSnap());
     embla.on('select', onSelect);
+    // Embla clamps its index silently on reInit (e.g. after the last photo is deleted) — mirror it.
+    embla.on('reInit', onSelect);
     onSelect();
     return () => {
       embla.off('select', onSelect);
+      embla.off('reInit', onSelect);
     };
   }, [embla]);
 
   useEffect(() => {
-    embla?.reInit();
+    if (!embla) return;
+    embla.reInit();
+    setIndex(embla.selectedScrollSnap());
   }, [embla, photos.length]);
 
   const move = useCallback(
@@ -51,7 +56,8 @@ export function PhotoGallery({
   );
 
   if (!photos.length) return null;
-  const current = photos[index] ?? photos[0]!;
+  const safeIndex = Math.min(index, photos.length - 1);
+  const current = photos[safeIndex]!;
 
   return (
     <div className="card overflow-hidden">
@@ -81,23 +87,23 @@ export function PhotoGallery({
       <div className="flex items-center justify-between gap-2 px-3 py-2">
         <div className="flex items-center gap-2 text-xs text-ink-mute">
           <span className="font-mono">
-            {index + 1}/{photos.length}
+            {safeIndex + 1}/{photos.length}
           </span>
           <AiPill status={current.aiStatus} error={current.aiError} />
         </div>
         <div className="flex items-center gap-1">
           <button
             className="btn-ghost btn-sm"
-            disabled={index === 0 || busy}
-            onClick={() => move(index, -1)}
+            disabled={safeIndex === 0 || busy}
+            onClick={() => move(safeIndex, -1)}
             aria-label="Move photo earlier"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             className="btn-ghost btn-sm"
-            disabled={index >= photos.length - 1 || busy}
-            onClick={() => move(index, 1)}
+            disabled={safeIndex >= photos.length - 1 || busy}
+            onClick={() => move(safeIndex, 1)}
             aria-label="Move photo later"
           >
             <ChevronLeft className="h-4 w-4 rotate-180" />
@@ -136,7 +142,7 @@ export function PhotoGallery({
               key={p.id}
               type="button"
               onClick={() => embla?.scrollTo(i)}
-              className={`h-12 w-12 shrink-0 overflow-hidden rounded-lg border-2 ${i === index ? 'border-accent' : 'border-transparent'}`}
+              className={`h-12 w-12 shrink-0 overflow-hidden rounded-lg border-2 ${i === safeIndex ? 'border-accent' : 'border-transparent'}`}
               aria-label={`Show photo ${i + 1}`}
             >
               <img src={p.thumbUrl} alt="" loading="lazy" className="h-full w-full object-cover" />

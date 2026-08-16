@@ -9,7 +9,7 @@ import type {
 } from '@totetrack/shared';
 import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import type { Db, Tx } from '../db/index.js';
-import { boxes, items, locations, photos, series } from '../db/schema.js';
+import { boxes, items, locations, photos, preprintedLabels, series } from '../db/schema.js';
 import type { ItemRow, PhotoRow } from '../db/schema.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { claimPreprinted } from './preprint.js';
@@ -51,11 +51,12 @@ export function mapItem(i: ItemRow): Item {
 
 // --- summary select --------------------------------------------------------
 
-const photoCountSql = sql<number>`(SELECT count(*)::int FROM photos p WHERE p.box_id = ${boxes.id})`;
-const itemCountSql = sql<number>`(SELECT count(*)::int FROM items i WHERE i.box_id = ${boxes.id})`;
+// Explicit `boxes.id` (not `${boxes.id}`) so these stay correct even in a join-less select.
+const photoCountSql = sql<number>`(SELECT count(*)::int FROM photos p WHERE p.box_id = boxes.id)`;
+const itemCountSql = sql<number>`(SELECT count(*)::int FROM items i WHERE i.box_id = boxes.id)`;
 const firstPhotoIdSql = sql<
   number | null
->`(SELECT p.id FROM photos p WHERE p.box_id = ${boxes.id} ORDER BY p.sort_order, p.id LIMIT 1)`;
+>`(SELECT p.id FROM photos p WHERE p.box_id = boxes.id ORDER BY p.sort_order, p.id LIMIT 1)`;
 
 export const boxSummaryColumns = {
   id: boxes.id,
@@ -275,6 +276,11 @@ export async function deleteBox(db: Db, id: number): Promise<{ photoPaths: strin
   return db.transaction(async (tx) => {
     await requireBox(tx, id);
     const photoRows = await tx.select().from(photos).where(eq(photos.boxId, id));
+    // A pre-printed label that was on this box goes back to the "waiting" pool (the sticker still exists).
+    await tx
+      .update(preprintedLabels)
+      .set({ claimedBoxId: null, claimedAt: null })
+      .where(eq(preprintedLabels.claimedBoxId, id));
     await tx.delete(boxes).where(eq(boxes.id, id));
     return { photoPaths: photoRows.flatMap((p) => [p.originalPath, p.thumbPath]) };
   });

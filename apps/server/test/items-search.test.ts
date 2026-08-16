@@ -97,6 +97,17 @@ describe('search', () => {
     expect(desc[0]?.matchedFields).toContain('description');
     expect(desc[0]?.headline).toContain('<b>stove</b>');
     expect(await q('unicorn')).toEqual([]);
+
+    // Headlines are HTML-escaped: markup in item names/notes/descriptions must not survive.
+    await ctx.agent
+      .post(`/api/boxes/${kitchen}/items`)
+      .send({ name: 'Blender <img src=x onerror=alert(1)>', note: 'a & b' })
+      .expect(201);
+    const esc = await q('blender');
+    expect(esc[0]?.labelId).toBe('A-002');
+    expect(esc[0]?.headline).not.toContain('<img');
+    expect(esc[0]?.headline).toContain('&lt;img');
+    expect(esc[0]?.headline).toContain('<b>Blender</b>');
   });
 
   it('supports partial and exact label matches', async () => {

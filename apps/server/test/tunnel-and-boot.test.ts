@@ -104,13 +104,13 @@ describe('zero-config boot helpers', () => {
   it('marks the session cookie Secure only when the request arrived over https', async () => {
     const plain = await request(ctx.app.app)
       .post('/api/auth/login')
-      .set('CF-Connecting-IP', '203.0.113.50')
+      .set('X-Forwarded-For', '203.0.113.50')
       .send({ pin: TEST_PIN })
       .expect(200);
     expect(plain.headers['set-cookie']?.[0]).not.toMatch(/Secure/);
     const https = await request(ctx.app.app)
       .post('/api/auth/login')
-      .set('CF-Connecting-IP', '203.0.113.51')
+      .set('X-Forwarded-For', '203.0.113.51')
       .set('X-Forwarded-Proto', 'https')
       .send({ pin: TEST_PIN })
       .expect(200);

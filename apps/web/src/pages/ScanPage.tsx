@@ -1,16 +1,9 @@
-import { normalizeLabelId } from '@totetrack/shared';
 import jsQR from 'jsqr';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CameraIcon } from '@/components/AppShell';
 import { LabelChip, PageHeader } from '@/components/ui';
-
-/** Pull a label out of whatever the QR contained: our deep link (…/b/A-014) or plain text like "A-014". */
-export function labelFromScan(text: string): string | null {
-  const m = /\/b\/([^/?#\s]+)/i.exec(text);
-  if (m) return normalizeLabelId(decodeURIComponent(m[1]!));
-  return normalizeLabelId(text);
-}
+import { labelFromScan } from '@/lib/labelFromScan';
 
 type BarcodeDetectorLike = {
   detect: (src: ImageBitmapSource) => Promise<Array<{ rawValue: string }>>;

@@ -81,11 +81,20 @@ function coerceAnalysis(v: unknown): unknown {
         if (Number.isFinite(n) && n > 0) qty = n;
       }
       const note = typeof it.note === 'string' && it.note.trim() ? it.note.trim() : null;
-      return { name: String(it.name ?? '').trim(), qty, note };
+      return {
+        name: String(it.name ?? '')
+          .trim()
+          .slice(0, 300),
+        qty,
+        note: note?.slice(0, 2000) ?? null,
+      };
     })
     .filter((i) => i.name.length > 0);
   return {
-    description: typeof o.description === 'string' ? o.description : String(o.description ?? ''),
+    description: (typeof o.description === 'string'
+      ? o.description
+      : String(o.description ?? '')
+    ).slice(0, 20000),
     items: outItems,
   };
 }
@@ -94,7 +103,11 @@ export class AiService {
   private clientCache: { key: string; client: Anthropic } | undefined;
   private queue: AiJob[] = [];
   private running = false;
+  /** Keys queued but not yet started. */
   private inFlight = new Set<string>();
+  private runningKey: string | null = null;
+  /** Keys that were requested again while running — re-queued when the current run finishes. */
+  private rerun = new Set<string>();
 
   constructor(
     private readonly db: Db,
@@ -187,7 +200,8 @@ export class AiService {
       .where(
         and(
           eq(boxes.aiStatus, 'pending'),
-          sql`NOT EXISTS (SELECT 1 FROM photos p WHERE p.box_id = ${boxes.id} AND p.ai_status = 'pending')`,
+          // explicit table reference: `${boxes.id}` renders unqualified in this join-less select
+          sql`NOT EXISTS (SELECT 1 FROM photos p WHERE p.box_id = boxes.id AND p.ai_status = 'pending')`,
         ),
       );
     for (const b of pendingBoxes) this.push({ kind: 'box', id: b.id });
@@ -201,6 +215,12 @@ export class AiService {
 
   private push(job: AiJob): void {
     const key = `${job.kind}:${job.id}`;
+    if (this.runningKey === key) {
+      // Photos changed while this target is being analyzed: run it again once the current job ends,
+      // otherwise the in-flight result (based on old photos) would be recorded as final.
+      this.rerun.add(key);
+      return;
+    }
     if (this.inFlight.has(key)) return;
     this.inFlight.add(key);
     this.queue.push(job);
@@ -213,13 +233,20 @@ export class AiService {
     try {
       while (this.queue.length) {
         const job = this.queue.shift()!;
+        const key = `${job.kind}:${job.id}`;
+        this.inFlight.delete(key);
+        this.runningKey = key;
         try {
           if (job.kind === 'photo') await this.runPhoto(job.id);
           else await this.runBox(job.id);
         } catch (err) {
           logger.error({ err, job }, 'ai job failed unexpectedly');
         } finally {
-          this.inFlight.delete(`${job.kind}:${job.id}`);
+          this.runningKey = null;
+          if (this.rerun.delete(key)) {
+            this.inFlight.add(key);
+            this.queue.push(job);
+          }
         }
       }
     } finally {
@@ -270,7 +297,7 @@ export class AiService {
 
   private async runPhoto(photoId: number): Promise<void> {
     const [p] = await this.db.select().from(photos).where(eq(photos.id, photoId)).limit(1);
-    if (!p) return; // deleted meanwhile
+    if (!p) return; // deleted meanwhile (deletePhoto already recomputed the box status)
     try {
       const model = await this.model();
       const image = await readForVision(this.storage, p.originalPath);
@@ -301,17 +328,34 @@ export class AiService {
             aiDescription: analysis.description || null,
           })
           .where(eq(photos.id, photoId));
-        // Box description = concatenated per-photo summaries.
+        // Box description = concatenated per-photo summaries — unless the current description was
+        // produced by a box-level run or edited by hand, in which case this photo's summary is appended.
         const summaries = await tx
-          .select({ d: photos.aiDescription })
+          .select({ id: photos.id, d: photos.aiDescription })
           .from(photos)
           .where(eq(photos.boxId, p.boxId))
           .orderBy(asc(photos.sortOrder), asc(photos.id));
-        const combined = summaries
+        const parts = summaries.map((s) => s.d?.trim()).filter((s): s is string => Boolean(s));
+        const combined = parts.join('\n\n');
+        const [boxRow] = await tx
+          .select({ d: boxes.aiDescription })
+          .from(boxes)
+          .where(eq(boxes.id, p.boxId))
+          .limit(1);
+        const current = boxRow?.d?.trim() ?? '';
+        const otherSummaries = summaries
+          .filter((s) => s.id !== photoId)
           .map((s) => s.d?.trim())
-          .filter((s): s is string => Boolean(s))
-          .join('\n\n');
-        await this.finishBox(tx, p.boxId, combined || null, parseFailed);
+          .filter((s): s is string => Boolean(s));
+        const derivedFromPhotos =
+          current === '' || otherSummaries.every((d) => current.includes(d));
+        const mine = analysis.description.trim();
+        const next = derivedFromPhotos
+          ? combined || null
+          : mine && !current.includes(mine)
+            ? `${current}\n\n${mine}`
+            : current || null;
+        await this.finishBox(tx, p.boxId, next, parseFailed);
       });
       logger.info({ photoId, items: analysis.items.length }, 'ai photo analysis done');
     } catch (err) {

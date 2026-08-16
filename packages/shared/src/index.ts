@@ -266,10 +266,12 @@ export type LabelTemplate = z.infer<typeof LabelTemplate>;
 // Auth
 // ---------------------------------------------------------------------------
 
+/** Digits only so phones can use the numeric keypad (an alphanumeric PIN could not be typed there). */
 export const Pin = z
   .string()
-  .min(4, 'PIN must be at least 4 characters')
-  .max(64, 'PIN must be at most 64 characters');
+  .min(4, 'PIN must be at least 4 digits')
+  .max(32, 'PIN must be at most 32 digits')
+  .regex(/^\d+$/, 'PIN must contain digits only');
 
 export const LoginInput = z.object({ pin: Pin });
 export type LoginInput = z.infer<typeof LoginInput>;

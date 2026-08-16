@@ -2,7 +2,7 @@
 
 Self-hosted home inventory for storage totes. Give every box a printed QR label (`A-014`), snap photos with your phone, and let Claude list what's inside. Search across labels, names, locations, descriptions and items from a single box on the home screen; switch box lists between compact rows and full-width photo cards.
 
-- **Stack:** React 18 + Vite + Tailwind · Node 20 + Express · Drizzle ORM + PostgreSQL 16 · Anthropic API (vision) · pdf-lib labels
+- **Stack:** React 18 + Vite + Tailwind · Node 22 + Express · Drizzle ORM + PostgreSQL 16 · Anthropic API (vision) · pdf-lib labels
 - **Deploy:** two containers (`app` distroless + `postgres:16`) via Docker Compose, exposed through a Cloudflare Tunnel
 - **Auth:** one shared household PIN → 30-day httpOnly session cookie, rate-limited login
 
@@ -51,7 +51,7 @@ The `app` container applies migrations on start, generates and stores a session 
 3. Copy the connector token from the install command and paste it into **Settings → Remote access**. The status pill turns **Connected** within a few seconds; the log tail is available for troubleshooting.
 4. Open the app on the new hostname; QR codes will use it automatically (`https://totes.example.com/b/<label>`). Scanning a label on a logged-out phone shows the PIN screen and then opens the box.
 
-The login rate limit keys on `CF-Connecting-IP`; `TRUST_PROXY=1` (default) makes Express honour the forwarded headers, and session cookies are marked `Secure` whenever a request arrives over https. For extra hardening put Cloudflare Access in front of the hostname (out of scope here). You can still run `cloudflared` yourself instead — set `CLOUDFLARE_TUNNEL_TOKEN` in the environment (it overrides the Settings value) or point an external connector at `http://localhost:3000`.
+Login is rate-limited per client address (5 failures / 15 min) plus a global cap; the client address comes from `req.ip`, which only honours `X-Forwarded-For` from **trusted proxies**. `TRUST_PROXY` defaults to `loopback` — the bundled `cloudflared` inside the container — so a LAN client cannot spoof its way past the limiter with a forged header. Running your own connector or reverse proxy on another host? Set `TRUST_PROXY` to its address/CIDR (`10.0.0.5`, `172.16.0.0/12`, `uniquelocal`) or a hop count. Session cookies are marked `Secure` whenever a request arrives over https, and **Settings → Security → Sign out everywhere** revokes every device at once. For extra hardening put Cloudflare Access in front of the hostname (out of scope here). You can still run `cloudflared` yourself instead — set `CLOUDFLARE_TUNNEL_TOKEN` in the environment (it overrides the Settings value) or point an external connector at `http://localhost:3000`.
 
 ### Backups
 
@@ -65,6 +65,8 @@ docker run --rm -v totetrack_photos:/data -v "$PWD":/backup alpine tar czf /back
 ```
 
 Restore with `pg_restore -U tote -d totetrack --clean` and by untarring back into the volume. (Volume names are prefixed with the compose project name, e.g. `totetrack_photos` — check `docker volume ls`.)
+
+> The database dump contains the settings table — including the **Anthropic API key**, **tunnel token** and the **session secret** you entered in the UI (the PIN is stored only as an argon2 hash). Treat dumps like a password file: encrypt them (`age`, `gpg`) or keep them on a private disk.
 
 ### What's configurable where
 
@@ -84,7 +86,7 @@ Restore with `pg_restore -U tote -d totetrack --clean` and by untarring back int
 | `PUBLIC_URL`              | unset                        | fixed QR origin (Settings overrides; else auto-detected per request) |
 | `PHOTO_DIR`               | `./data/photos`              | `/data/photos` in Docker                                             |
 | `PORT`                    | `3000`                       |                                                                      |
-| `TRUST_PROXY`             | `1`                          | Proxy hops in front of the app                                       |
+| `TRUST_PROXY`             | `loopback`                   | Express `trust proxy` (addresses/CIDRs, `uniquelocal`, or hop count) |
 | `LOG_LEVEL`               | `info`                       | pino level                                                           |
 | `APP_PORT` / `APP_BIND`   | `3000` / `127.0.0.1`         | Host binding (compose only)                                          |
 

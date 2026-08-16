@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ---- build stage -----------------------------------------------------------
-FROM node:20-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 WORKDIR /app
@@ -28,7 +28,7 @@ RUN mkdir -p /out/data/photos && chown -R 65532:65532 /out/data
 FROM cloudflare/cloudflared:latest AS cloudflared
 
 # ---- runtime stage (distroless) --------------------------------------------
-FROM gcr.io/distroless/nodejs20-debian12:nonroot
+FROM gcr.io/distroless/nodejs22-debian12:nonroot
 WORKDIR /app
 COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 ENV NODE_ENV=production \

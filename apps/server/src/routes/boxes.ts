@@ -28,6 +28,7 @@ import {
 import {
   clearBoxPhotos,
   MAX_UPLOAD_BYTES,
+  preparePhotos,
   removeFiles,
   reorderPhotos,
   storePhoto,
@@ -118,11 +119,10 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
       const boxId = idParam(req.params.id);
       const files = (req.files as Express.Multer.File[] | undefined) ?? [];
       if (!files.length) throw badRequest('No photos uploaded (field name: photos)');
+      // Validate/decode every file before writing anything, so a bad file rejects the whole batch.
+      const prepared = await preparePhotos(files.map((f) => f.buffer));
       const created = [];
-      for (const f of files) {
-        const photo = await storePhoto(db, storage, boxId, f.buffer);
-        created.push(photo);
-      }
+      for (const pf of prepared) created.push(await storePhoto(db, storage, boxId, pf));
       // Kick off AI after all files are stored so the queue order matches upload order.
       let queued = false;
       for (const p of created) {
@@ -149,12 +149,14 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
       const files = (req.files as Express.Multer.File[] | undefined) ?? [];
       if (!files.length) throw badRequest('No photos uploaded (field name: photos)');
       const replace = String(req.body?.replace ?? 'true') !== 'false';
+      // Decode the new photos FIRST — only then is it safe to remove the old ones.
+      const prepared = await preparePhotos(files.map((f) => f.buffer));
       if (replace) {
         const { photoPaths } = await clearBoxPhotos(db, boxId);
         await removeFiles(storage, photoPaths);
       }
       const created = [];
-      for (const f of files) created.push(await storePhoto(db, storage, boxId, f.buffer));
+      for (const pf of prepared) created.push(await storePhoto(db, storage, boxId, pf));
       let queued = false;
       if (await ai.isAvailable()) {
         await ai.enqueueBox(boxId);

@@ -86,14 +86,26 @@ export function useSetup() {
   });
 }
 
+/** Flip the cached auth status (so <App> re-renders to the login screen) and drop everything else. */
+function forgetSession(qc: ReturnType<typeof useQueryClient>): void {
+  qc.setQueryData<AuthStatus>(keys.auth, { setupRequired: false, authenticated: false });
+  qc.removeQueries({ predicate: (q) => q.queryKey[0] !== keys.auth[0] });
+}
+
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => post('/api/auth/logout'),
-    onSuccess: () => {
-      qc.clear();
-      void qc.invalidateQueries({ queryKey: keys.auth });
-    },
+    onSuccess: () => forgetSession(qc),
+  });
+}
+
+/** Rotates the session generation server-side: every device must log in again. */
+export function useSignOutEverywhere() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pin: string) => post('/api/auth/sign-out-everywhere', { pin }),
+    onSuccess: () => forgetSession(qc),
   });
 }
 

@@ -58,7 +58,7 @@ export function createApp(deps: AppDeps): App {
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', env.TRUST_PROXY);
+  app.set('trust proxy', /^\d+$/.test(env.TRUST_PROXY) ? Number(env.TRUST_PROXY) : env.TRUST_PROXY);
 
   app.use(
     helmet({
@@ -72,6 +72,9 @@ export function createApp(deps: AppDeps): App {
           'connect-src': ["'self'"],
           'object-src': ["'none'"],
           'frame-ancestors': ["'none'"],
+          // Helmet's default would force https for every asset/API call — which breaks the app when it
+          // is opened over plain http on a LAN address (http://192.168.x.x:3000). Leave the scheme alone.
+          'upgrade-insecure-requests': null,
         },
       },
       crossOriginEmbedderPolicy: false,

@@ -31,10 +31,18 @@ export function BoxNewPage() {
 
   useEffect(() => {
     if (!series.data || seriesId !== '') return;
-    const match = wantedLetter ? series.data.find((s) => s.letter === wantedLetter) : undefined;
-    const first = match ?? series.data[0];
+    if (wantedLetter) {
+      // A scanned label must land in ITS series — never silently fall back to another letter.
+      const match = series.data.find((s) => s.letter === wantedLetter);
+      if (match) setSeriesId(match.id);
+      return;
+    }
+    const first = series.data[0];
     if (first) setSeriesId(first.id);
   }, [series.data, seriesId, wantedLetter]);
+  const missingSeries = Boolean(
+    wantedLetter && series.data && !series.data.some((s) => s.letter === wantedLetter),
+  );
 
   const selected = series.data?.find((s) => s.id === seriesId);
   const previewLabel = selected
@@ -87,6 +95,13 @@ export function BoxNewPage() {
       {wanted && (
         <div className="card mb-3 border-accent/40 bg-accent-soft/40 p-3 text-sm">
           You scanned <LabelChip label={wanted} size="sm" /> but no box has that label yet.
+          {missingSeries && (
+            <>
+              {' '}
+              There is no series “{wantedLetter}” yet — add it below (the letter is pre-filled) and
+              the box will be created as {wanted}.
+            </>
+          )}
         </div>
       )}
       <form onSubmit={submit} className="card space-y-4 p-4">
@@ -102,9 +117,10 @@ export function BoxNewPage() {
             <select
               className="input"
               value={seriesId}
-              onChange={(e) => setSeriesId(Number(e.target.value))}
+              onChange={(e) => setSeriesId(e.target.value ? Number(e.target.value) : '')}
               required
             >
+              {missingSeries && <option value="">— add series {wantedLetter} below —</option>}
               {(series.data ?? []).map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.letter} — {s.description || 'no description'} (next: {s.letter}-

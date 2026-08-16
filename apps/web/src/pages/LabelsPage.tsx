@@ -73,7 +73,8 @@ export function LabelsPage() {
   };
 
   const perSheet = template?.perSheet ?? 10;
-  const effectiveOffset = perSheet > 1 ? startOffset : 0;
+  // Re-clamp when switching to a template with fewer labels per sheet (the server clamps too).
+  const effectiveOffset = perSheet > 1 ? Math.min(startOffset, perSheet - 1) : 0;
   const sheets = selected.size ? Math.ceil((selected.size + effectiveOffset) / perSheet) : 0;
 
   return (
@@ -110,7 +111,7 @@ export function LabelsPage() {
                 inputMode="numeric"
                 min={1}
                 max={perSheet}
-                value={startOffset + 1}
+                value={effectiveOffset + 1}
                 onChange={(e) =>
                   setStartOffset(
                     Math.min(

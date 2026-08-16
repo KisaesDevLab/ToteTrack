@@ -49,8 +49,12 @@ const EnvSchema = z.object({
   LOG_LEVEL: optionalString.transform((v) => v ?? 'info'),
   /** Comma-separated list of allowed CORS origins in dev (Vite). */
   DEV_ORIGIN: optionalString.transform((v) => v ?? 'http://localhost:5173'),
-  /** Trust proxy hops (Cloudflare Tunnel → app). */
-  TRUST_PROXY: z.coerce.number().int().min(0).default(1),
+  /**
+   * Express `trust proxy` setting. Default `loopback` trusts only the bundled cloudflared (same
+   * container). Running an external connector/reverse proxy? Set its address/CIDR, `uniquelocal`, or a
+   * hop count. Everything else (LAN clients) is keyed by its real socket address for rate limiting.
+   */
+  TRUST_PROXY: optionalString.transform((v) => v ?? 'loopback'),
 });
 
 export type Env = Omit<z.infer<typeof EnvSchema>, 'SESSION_SECRET'> & {

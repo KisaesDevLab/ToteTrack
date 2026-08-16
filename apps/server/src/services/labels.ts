@@ -147,7 +147,22 @@ export function qrPayload(publicUrl: string, labelId: string): string {
   return `${publicUrl.replace(/\/+$/, '')}/b/${encodeURIComponent(labelId)}`;
 }
 
-function fitText(font: PDFFont, text: string, size: number, maxWidth: number): string {
+/** Standard PDF fonts are WinAnsi-only; drop characters (emoji, CJK…) the font cannot encode. */
+export function encodable(font: PDFFont, text: string): string {
+  let out = '';
+  for (const ch of text) {
+    try {
+      font.encodeText(ch);
+      out += ch;
+    } catch {
+      /* skip */
+    }
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+function fitText(font: PDFFont, rawText: string, size: number, maxWidth: number): string {
+  const text = encodable(font, rawText);
   if (font.widthOfTextAtSize(text, size) <= maxWidth) return text;
   let t = text;
   while (t.length > 1 && font.widthOfTextAtSize(t + '…', size) > maxWidth) t = t.slice(0, -1);

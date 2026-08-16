@@ -57,7 +57,8 @@ function PinInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         minLength={4}
-        maxLength={64}
+        maxLength={32}
+        pattern="[0-9]*"
         required
       />
     </label>

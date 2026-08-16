@@ -17,12 +17,30 @@ export function authRouter(ctx: AuthContext): Router {
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     skipSuccessfulRequests: true,
-    // Cloudflare Tunnel sets CF-Connecting-IP; fall back to the proxied/express ip.
-    keyGenerator: (req) =>
-      (req.headers['cf-connecting-ip'] as string | undefined) ?? req.ip ?? 'unknown',
+    // req.ip honours X-Forwarded-For only from trusted proxies (`trust proxy` = loopback by default,
+    // i.e. the bundled cloudflared). Direct LAN clients are keyed by their real socket address, so a
+    // spoofed CF-Connecting-IP / X-Forwarded-For header cannot reset the counter.
+    keyGenerator: (req) => req.ip ?? req.socket.remoteAddress ?? 'unknown',
     handler: (_req, res) => {
       res.status(429).json({
         error: { code: 'rate_limited', message: 'Too many attempts. Try again in 15 minutes.' },
+      });
+    },
+  });
+  // Safety net against distributed / spoofed-source brute force: total failed logins across all clients.
+  const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 60,
+    standardHeaders: false,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    keyGenerator: () => 'global',
+    handler: (_req, res) => {
+      res.status(429).json({
+        error: {
+          code: 'rate_limited',
+          message: 'Too many login attempts right now. Try again later.',
+        },
       });
     },
   });
@@ -50,6 +68,7 @@ export function authRouter(ctx: AuthContext): Router {
 
   r.post(
     '/login',
+    globalLimiter,
     loginLimiter,
     asyncHandler(async (req, res) => {
       const { pin } = parseBody(LoginInput, req.body);
@@ -75,6 +94,19 @@ export function authRouter(ctx: AuthContext): Router {
       const gen = await pins.setPin(newPin);
       // Existing sessions stay valid (generation unchanged); refresh this device's cookie expiry.
       setSessionCookie(req, res, env, createSessionToken(env.SESSION_SECRET, gen));
+      res.json({ ok: true });
+    }),
+  );
+
+  // Rotates the session generation: every device (including this one) must log in again.
+  r.post(
+    '/sign-out-everywhere',
+    requireAuth(ctx),
+    asyncHandler(async (req, res) => {
+      const { pin } = parseBody(LoginInput, req.body);
+      if (!(await pins.verify(pin))) throw unauthorized('Incorrect PIN');
+      await pins.rotateGeneration();
+      clearSessionCookie(req, res, env);
       res.json({ ok: true });
     }),
   );

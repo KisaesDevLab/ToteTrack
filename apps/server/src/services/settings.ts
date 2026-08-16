@@ -73,9 +73,15 @@ export async function effectivePublicUrl(
 
 /** Origin the client used to reach us (honours X-Forwarded-* via `trust proxy`). */
 export function requestOrigin(req: Request): string | null {
-  const host = req.get('x-forwarded-host')?.split(',')[0]?.trim() || req.get('host');
-  if (!host) return null;
-  return `${req.protocol}://${host}`;
+  // req.hostname/req.protocol only honour X-Forwarded-* from trusted proxies (`trust proxy`).
+  const hostname = req.hostname;
+  if (!hostname) return null;
+  // req.hostname strips the port; keep it for non-default ports (LAN http://host:3000).
+  const rawHost = req.get('host') ?? '';
+  const port = rawHost.startsWith(hostname) ? rawHost.slice(hostname.length) : '';
+  const forwardedHost = req.get('x-forwarded-host');
+  const usingForwarded = Boolean(forwardedHost) && req.hostname !== rawHost.replace(/:\d+$/, '');
+  return `${req.protocol}://${hostname}${usingForwarded ? '' : port}`;
 }
 
 /** Cloudflare tunnel token: env wins, otherwise the stored setting. */

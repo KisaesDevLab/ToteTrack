@@ -72,7 +72,9 @@ export async function searchBoxes(db: Db, q: SearchQuery): Promise<SearchResult[
     : sql`0::float4`;
   const headlineExpr = hasTerm
     ? sql`ts_headline('english',
-          coalesce(b.ai_description, '') || ' ' || coalesce((SELECT string_agg(i.name || coalesce(' — ' || i.note, ''), '; ') FROM items i WHERE i.box_id = b.id), ''),
+          replace(replace(replace(
+            coalesce(b.ai_description, '') || ' ' || coalesce((SELECT string_agg(i.name || coalesce(' — ' || i.note, ''), '; ') FROM items i WHERE i.box_id = b.id), ''),
+          '&', '&amp;'), '<', '&lt;'), '>', '&gt;'),
           websearch_to_tsquery('english', ${term}),
           'MaxWords=20, MinWords=8, ShortWord=2, MaxFragments=1, StartSel=<b>, StopSel=</b>')`
     : sql`NULL::text`;

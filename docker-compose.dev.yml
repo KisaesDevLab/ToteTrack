@@ -1,4 +1,5 @@
 # Local development database only. Production uses docker-compose.yml.
+name: totetrack-dev
 services:
   postgres:
     image: postgres:16

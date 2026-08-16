@@ -109,20 +109,22 @@ export function LocationsPage() {
                 </form>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => setEditing({ id: l.id, name: l.name })}
-                  >
-                    <div className="truncate font-medium">{l.name}</div>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="block w-full truncate text-left font-medium"
+                      onClick={() => setEditing({ id: l.id, name: l.name })}
+                      title="Rename"
+                    >
+                      {l.name}
+                    </button>
                     <Link
                       to={`/boxes?loc=${l.id}`}
                       className="text-xs text-ink-mute underline-offset-2 hover:underline"
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {l.boxCount ?? 0} box{l.boxCount === 1 ? '' : 'es'}
                     </Link>
-                  </button>
+                  </div>
                   <button
                     className="btn-ghost btn-sm"
                     disabled={i === 0 || reorder.isPending}
