@@ -8,7 +8,7 @@ import { readForVision, type PhotoStorage } from './photos.js';
 import { refreshBoxSearchVector } from './search-vector.js';
 import { getSetting, SETTING_KEYS } from './settings.js';
 
-const SYSTEM_PROMPT = `You catalog the contents of household storage totes from photos so the owner can find things later.
+export const DEFAULT_SYSTEM_PROMPT = `You catalog the contents of household storage totes from photos so the owner can find things later.
 Look carefully at everything visible and list each distinct item or group of items.
 
 Respond with JSON only — no prose, no code fences — using exactly this shape:
@@ -28,10 +28,11 @@ export interface AiJob {
 }
 
 export interface AiServiceOptions {
+  /** Env-provided key; when set it always wins over a key stored in settings. */
   apiKey: string | undefined;
   defaultModel: string;
   /** Test hook: overrides the API call. */
-  analyzeOverride?: (images: Buffer[], model: string) => Promise<string>;
+  analyzeOverride?: (images: Buffer[], model: string, systemPrompt: string) => Promise<string>;
 }
 
 export interface AiRunResult {
@@ -90,7 +91,7 @@ function coerceAnalysis(v: unknown): unknown {
 }
 
 export class AiService {
-  private client: Anthropic | undefined;
+  private clientCache: { key: string; client: Anthropic } | undefined;
   private queue: AiJob[] = [];
   private running = false;
   private inFlight = new Set<string>();
@@ -99,21 +100,43 @@ export class AiService {
     private readonly db: Db,
     private readonly storage: PhotoStorage,
     private readonly opts: AiServiceOptions,
-  ) {
-    if (opts.apiKey)
-      this.client = new Anthropic({ apiKey: opts.apiKey, timeout: 180_000, maxRetries: 2 });
+  ) {}
+
+  /** Active key: env var first, then the key stored in settings. */
+  async apiKey(): Promise<string | undefined> {
+    if (this.opts.apiKey) return this.opts.apiKey;
+    return (await getSetting(this.db, SETTING_KEYS.aiApiKey)) ?? undefined;
   }
 
-  get available(): boolean {
-    return Boolean(this.client) || Boolean(this.opts.analyzeOverride);
+  /** True when a key (env or settings) is configured, or a test override is installed. */
+  async isAvailable(): Promise<boolean> {
+    if (this.opts.analyzeOverride) return true;
+    return Boolean(await this.apiKey());
+  }
+
+  private async client(): Promise<Anthropic> {
+    const key = await this.apiKey();
+    if (!key) throw new Error('AI is not configured (no Anthropic API key in env or settings)');
+    if (!this.clientCache || this.clientCache.key !== key) {
+      this.clientCache = {
+        key,
+        client: new Anthropic({ apiKey: key, timeout: 180_000, maxRetries: 2 }),
+      };
+    }
+    return this.clientCache.client;
   }
 
   async model(): Promise<string> {
     return (await getSetting(this.db, SETTING_KEYS.aiModel)) ?? this.opts.defaultModel;
   }
 
+  async systemPrompt(): Promise<string> {
+    const custom = await getSetting(this.db, SETTING_KEYS.aiSystemPrompt);
+    return custom?.trim() ? custom : DEFAULT_SYSTEM_PROMPT;
+  }
+
   async autoAnalyzeEnabled(): Promise<boolean> {
-    if (!this.available) return false;
+    if (!(await this.isAvailable())) return false;
     const v = await getSetting(this.db, SETTING_KEYS.aiAutoAnalyze);
     return v === null ? true : v === 'true';
   }
@@ -126,7 +149,7 @@ export class AiService {
   }
 
   async enqueuePhoto(photoId: number): Promise<void> {
-    if (!this.available) return;
+    if (!(await this.isAvailable())) return;
     const [p] = await this.db.select().from(photos).where(eq(photos.id, photoId)).limit(1);
     if (!p) return;
     await this.db
@@ -141,7 +164,7 @@ export class AiService {
   }
 
   async enqueueBox(boxId: number): Promise<void> {
-    if (!this.available) return;
+    if (!(await this.isAvailable())) return;
     await this.db
       .update(boxes)
       .set({ aiStatus: 'pending', aiError: null })
@@ -151,7 +174,7 @@ export class AiService {
 
   /** On boot: re-queue anything left pending by a previous process. */
   async recoverPending(): Promise<number> {
-    if (!this.available) return 0;
+    if (!(await this.isAvailable())) return 0;
     const pendingPhotos = await this.db
       .select({ id: photos.id })
       .from(photos)
@@ -207,8 +230,9 @@ export class AiService {
   // --- API call ------------------------------------------------------------
 
   private async analyze(images: Buffer[], model: string): Promise<string> {
-    if (this.opts.analyzeOverride) return this.opts.analyzeOverride(images, model);
-    if (!this.client) throw new Error('AI is not configured (ANTHROPIC_API_KEY unset)');
+    const systemPrompt = await this.systemPrompt();
+    if (this.opts.analyzeOverride) return this.opts.analyzeOverride(images, model, systemPrompt);
+    const client = await this.client();
 
     const content: Anthropic.MessageParam['content'] = [
       ...images.map((buf): Anthropic.ImageBlockParam => ({
@@ -224,10 +248,10 @@ export class AiService {
       },
     ];
 
-    const response = await this.client.messages.create({
+    const response = await client.messages.create({
       model,
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: 'user', content }],
     });
 

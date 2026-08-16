@@ -68,20 +68,25 @@ docker run --rm -v totetrack_photos:/data -v "$PWD":/backup alpine tar czf /back
 
 Restore with `pg_restore -U tote -d totetrack --clean` and by untarring back into the volume. (Volume names are prefixed with the compose project name, e.g. `totetrack_photos` — check `docker volume ls`.)
 
+### What's configurable where
+
+**Settings page (no restart):** household PIN, Anthropic API key (unless provided by env), AI model, auto-analyze on/off, the AI instructions/prompt, public address used in QR codes, default label sheet, series and locations.
+**Environment (`.env`, restart):** database, session secret, port, photo directory, proxy trust, log level — plus optional defaults for the API key, model and public URL.
+
 ### Environment variables
 
-| Variable                | Default                 | Notes                                                                            |
-| ----------------------- | ----------------------- | -------------------------------------------------------------------------------- |
-| `DATABASE_URL`          | —                       | `postgres://user:pass@host:5432/db` (compose builds it from `POSTGRES_PASSWORD`) |
-| `SESSION_SECRET`        | —                       | ≥16 chars, use 32+ random bytes; changing it logs everyone out                   |
-| `PUBLIC_URL`            | `http://localhost:5173` | Origin used in QR payloads; https ⇒ `Secure` cookies                             |
-| `ANTHROPIC_API_KEY`     | unset                   | AI disabled when unset                                                           |
-| `ANTHROPIC_MODEL`       | `claude-sonnet-5`       | Also editable in Settings                                                        |
-| `PHOTO_DIR`             | `./data/photos`         | `/data/photos` in Docker                                                         |
-| `PORT`                  | `3000`                  |                                                                                  |
-| `TRUST_PROXY`           | `1`                     | Proxy hops in front of the app                                                   |
-| `LOG_LEVEL`             | `info`                  | pino level                                                                       |
-| `APP_PORT` / `APP_BIND` | `3000` / `127.0.0.1`    | Host binding (compose only)                                                      |
+| Variable                | Default                 | Notes                                                                                             |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | —                       | `postgres://user:pass@host:5432/db` (compose builds it from `POSTGRES_PASSWORD`)                  |
+| `SESSION_SECRET`        | —                       | ≥16 chars, use 32+ random bytes; changing it logs everyone out                                    |
+| `PUBLIC_URL`            | `http://localhost:5173` | Default origin for QR payloads (Settings → Public address overrides it); https ⇒ `Secure` cookies |
+| `ANTHROPIC_API_KEY`     | unset                   | Optional — a key can also be entered in Settings; the env var wins if both are set                |
+| `ANTHROPIC_MODEL`       | `claude-sonnet-5`       | Also editable in Settings                                                                         |
+| `PHOTO_DIR`             | `./data/photos`         | `/data/photos` in Docker                                                                          |
+| `PORT`                  | `3000`                  |                                                                                                   |
+| `TRUST_PROXY`           | `1`                     | Proxy hops in front of the app                                                                    |
+| `LOG_LEVEL`             | `info`                  | pino level                                                                                        |
+| `APP_PORT` / `APP_BIND` | `3000` / `127.0.0.1`    | Host binding (compose only)                                                                       |
 
 ## Labels
 

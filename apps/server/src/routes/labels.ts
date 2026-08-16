@@ -12,7 +12,7 @@ import {
   renderCalibrationPdf,
   renderLabelsPdf,
 } from '../services/labels.js';
-import { getSetting, SETTING_KEYS } from '../services/settings.js';
+import { effectivePublicUrl, getSetting, SETTING_KEYS } from '../services/settings.js';
 
 export function labelsRouter(db: Db, env: Env): Router {
   const r = Router();
@@ -55,7 +55,7 @@ export function labelsRouter(db: Db, env: Env): Router {
         templateId,
         startOffset: input.startOffset,
         includeName: input.includeName,
-        publicUrl: env.PUBLIC_URL,
+        publicUrl: await effectivePublicUrl(db, env),
       });
       if (input.markPrinted)
         await markBoxesPrinted(

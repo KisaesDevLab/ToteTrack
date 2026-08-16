@@ -29,7 +29,8 @@ async function main() {
 
   const recovered = await ai.recoverPending();
   if (recovered) logger.info({ recovered }, 're-queued pending AI jobs');
-  if (!ai.available) logger.warn('ANTHROPIC_API_KEY not set — AI analysis disabled');
+  if (!(await ai.isAvailable()))
+    logger.warn('No Anthropic API key (env or settings) — AI analysis disabled until one is set');
 
   const server = http.createServer(app);
   server.listen(env.PORT, () => {

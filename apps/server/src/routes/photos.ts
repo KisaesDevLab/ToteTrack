@@ -42,8 +42,10 @@ export function photosRouter(db: Db, storage: PhotoStorage, ai: AiService): Rout
     asyncHandler(async (req, res) => {
       const id = idParam(req.params.id);
       await getPhotoRow(db, id);
-      if (!ai.available)
-        throw serviceUnavailable('AI analysis is not configured (ANTHROPIC_API_KEY unset)');
+      if (!(await ai.isAvailable()))
+        throw serviceUnavailable(
+          'AI analysis is not configured — add an Anthropic API key in Settings or ANTHROPIC_API_KEY',
+        );
       await ai.enqueuePhoto(id);
       res.status(202).json({ queued: true });
     }),

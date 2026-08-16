@@ -21,6 +21,9 @@ Open questions and judgment calls made while building autonomously. Each entry s
 14. **4×3 label printer** — added two one-label-per-page templates: `label-4x3` (4" wide × 3" tall, landscape) and `label-3x4` (portrait), stacked layout (big label ID, QR, name). I don't know your printer's exact stock orientation or model, so both are offered; delete the one you don't use in `apps/server/src/services/labels.ts` if it clutters the list. Printer driver must be set to a 4×3 (or 3×4) paper size, 100% scale, no margins.
 15. **List vs photo-cards view** — the toggle (top of Search and Boxes) is a per-device preference stored in `localStorage`, not a server setting.
 
+16. **Settings vs env precedence** — Anthropic API key: env var wins over the Settings value (secret managed by the operator); Public URL and AI prompt: the Settings value overrides the env/built-in default. The `Secure` cookie flag still follows the env `PUBLIC_URL` (needs restart) since it must be known before the DB is consulted.
+17. **API key at rest** — stored as plain text in the `settings` table (same trust level as the DB itself); it is never returned by the API (only a `…last4` hint). If you want it encrypted at rest, that needs a server-side secret in env — say so and I'll add it.
+
 ## Not verified (needs a human / real hardware)
 
 - **4×3 labels on your sheet-feed printer** — PDF geometry rendered and inspected (see `label-4x3` / `label-3x4`), but not printed on the actual device.

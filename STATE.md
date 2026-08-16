@@ -1,10 +1,10 @@
 # STATE.md
 
-_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. Answers from the Q&A round applied (model claude-sonnet-5, PIN change keeps sessions, combined CSV) and committed to main._
+_Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-cards view toggle + 4×3 / 3×4 one-per-page label templates. Q&A answers applied; API key / public URL / AI prompt now editable in Settings (env still supported)._
 
 ## Where things stand
 
-- **Backend** (`apps/server`): Express 4 + Drizzle/pg, ESM, bundled with tsup. 32 integration tests pass (`pnpm test`, needs the dev postgres from `docker-compose.dev.yml`).
+- **Backend** (`apps/server`): Express 4 + Drizzle/pg, ESM, bundled with tsup. 36 integration tests pass (`pnpm test`, needs the dev postgres from `docker-compose.dev.yml`).
 - **Frontend** (`apps/web`): Vite + React 18 + Tailwind, react-query, react-router; ~108 kB gzipped JS. Verified in headless Chromium at iPhone 13 and desktop widths.
 - **Shared** (`packages/shared`): zod schemas/types consumed by both, imported as TS source (bundled by tsup/Vite — no build step).
 - **Docker**: `Dockerfile` (node:20 build → distroless nonroot runtime) + `docker-compose.yml`. Full stack verified locally on port 3300 and torn down.
@@ -16,7 +16,7 @@ _Last updated: 2026-08-15 — all 14 phases implemented; follow-up: list/photo-c
 2. Print the calibration PDF on real Avery 5163 stock once; adjust `LABEL_TEMPLATES` geometry if off.
 3. Lighthouse mobile pass not measured.
 4. `pnpm dev` photo dir is `apps/server/data/photos` (gitignored).
-5. `.env` (gitignored) still has no `ANTHROPIC_API_KEY` — add it to enable AI locally.
+5. No Anthropic key configured yet — paste one in Settings → AI photo analysis (or set `ANTHROPIC_API_KEY`).
 
 ## Smoke-test checklist (phone over the tunnel)
 

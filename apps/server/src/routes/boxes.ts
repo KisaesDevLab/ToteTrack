@@ -151,8 +151,10 @@ export function boxesRouter({ db, storage, ai }: BoxesDeps): Router {
     asyncHandler(async (req, res) => {
       const boxId = idParam(req.params.id);
       await requireBox(db, boxId);
-      if (!ai.available)
-        throw serviceUnavailable('AI analysis is not configured (ANTHROPIC_API_KEY unset)');
+      if (!(await ai.isAvailable()))
+        throw serviceUnavailable(
+          'AI analysis is not configured — add an Anthropic API key in Settings or ANTHROPIC_API_KEY',
+        );
       await ai.enqueueBox(boxId);
       res.status(202).json({ queued: true });
     }),

@@ -1,4 +1,4 @@
-import { SearchQuery, SettingsUpdateInput } from '@totetrack/shared';
+import { SearchQuery, SettingsUpdateInput, type AppSettings } from '@totetrack/shared';
 import { asc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import type { Db } from '../db/index.js';
@@ -6,11 +6,18 @@ import { boxes, items, locations } from '../db/schema.js';
 import type { Env } from '../env.js';
 import { badRequest } from '../lib/errors.js';
 import { asyncHandler, parseBody, parseQuery } from '../lib/http.js';
-import type { AiService } from '../services/ai.js';
+import { DEFAULT_SYSTEM_PROMPT, type AiService } from '../services/ai.js';
 import { boxSummaryColumns } from '../services/boxes.js';
 import { DEFAULT_LABEL_TEMPLATE, LABEL_TEMPLATES } from '../services/labels.js';
 import { searchBoxes } from '../services/search.js';
-import { getSettings, SETTING_KEYS, setSetting } from '../services/settings.js';
+import {
+  deleteSetting,
+  effectiveApiKey,
+  effectivePublicUrl,
+  getSettings,
+  SETTING_KEYS,
+  setSetting,
+} from '../services/settings.js';
 
 export function searchRouter(db: Db): Router {
   const r = Router();
@@ -29,14 +36,26 @@ export function searchRouter(db: Db): Router {
 export function settingsRouter(db: Db, env: Env, ai: AiService, version: string): Router {
   const r = Router();
 
-  const read = async () => {
+  const read = async (): Promise<AppSettings> => {
     const s = await getSettings(db);
+    const key = await effectiveApiKey(db, env);
+    const customPrompt = s[SETTING_KEYS.aiSystemPrompt]?.trim()
+      ? s[SETTING_KEYS.aiSystemPrompt]!
+      : null;
+    const customUrl = s[SETTING_KEYS.publicUrl] ?? null;
     return {
       aiModel: s[SETTING_KEYS.aiModel] ?? env.ANTHROPIC_MODEL,
       aiAutoAnalyze: (s[SETTING_KEYS.aiAutoAnalyze] ?? 'true') === 'true',
-      aiAvailable: ai.available,
+      aiAvailable: await ai.isAvailable(),
+      aiKeySource: key.source,
+      aiKeyHint: key.key ? `…${key.key.slice(-4)}` : null,
+      aiSystemPrompt: customPrompt ?? DEFAULT_SYSTEM_PROMPT,
+      aiSystemPromptDefault: DEFAULT_SYSTEM_PROMPT,
+      aiSystemPromptCustom: customPrompt !== null,
       defaultLabelTemplate: s[SETTING_KEYS.defaultLabelTemplate] ?? DEFAULT_LABEL_TEMPLATE,
-      publicUrl: env.PUBLIC_URL,
+      publicUrl: await effectivePublicUrl(db, env),
+      publicUrlEnv: env.PUBLIC_URL,
+      publicUrlCustom: customUrl !== null,
       version,
     };
   };
@@ -55,6 +74,20 @@ export function settingsRouter(db: Db, env: Env, ai: AiService, version: string)
       if (input.aiModel !== undefined) await setSetting(db, SETTING_KEYS.aiModel, input.aiModel);
       if (input.aiAutoAnalyze !== undefined)
         await setSetting(db, SETTING_KEYS.aiAutoAnalyze, input.aiAutoAnalyze ? 'true' : 'false');
+      if (input.anthropicApiKey !== undefined) {
+        if (input.anthropicApiKey === null) await deleteSetting(db, SETTING_KEYS.aiApiKey);
+        else await setSetting(db, SETTING_KEYS.aiApiKey, input.anthropicApiKey);
+      }
+      if (input.aiSystemPrompt !== undefined) {
+        const v = input.aiSystemPrompt?.trim();
+        if (!v || v === DEFAULT_SYSTEM_PROMPT.trim())
+          await deleteSetting(db, SETTING_KEYS.aiSystemPrompt);
+        else await setSetting(db, SETTING_KEYS.aiSystemPrompt, v);
+      }
+      if (input.publicUrl !== undefined) {
+        if (input.publicUrl === null) await deleteSetting(db, SETTING_KEYS.publicUrl);
+        else await setSetting(db, SETTING_KEYS.publicUrl, input.publicUrl.replace(/\/+$/, ''));
+      }
       if (input.defaultLabelTemplate !== undefined) {
         if (!LABEL_TEMPLATES[input.defaultLabelTemplate])
           throw badRequest('Unknown label template');

@@ -260,16 +260,41 @@ export const AppSettings = z.object({
   aiModel: z.string(),
   aiAutoAnalyze: z.boolean(),
   aiAvailable: z.boolean(),
+  /** Where the active Anthropic key comes from. `env` always wins over `settings`. */
+  aiKeySource: z.enum(['env', 'settings', 'none']),
+  /** Last 4 characters of the active key, for display only. */
+  aiKeyHint: z.string().nullable(),
+  aiSystemPrompt: z.string(),
+  aiSystemPromptDefault: z.string(),
+  aiSystemPromptCustom: z.boolean(),
   defaultLabelTemplate: z.string(),
+  /** Effective public origin used in QR codes (Settings value overrides the PUBLIC_URL env default). */
   publicUrl: z.string(),
+  publicUrlEnv: z.string(),
+  publicUrlCustom: z.boolean(),
   version: z.string(),
 });
 export type AppSettings = z.infer<typeof AppSettings>;
+
+export const PublicUrl = z
+  .string()
+  .trim()
+  .max(200)
+  .regex(
+    /^https?:\/\/[^\s/?#]+(?::\d+)?\/?$/,
+    'Enter an origin like https://totes.example.com (no path)',
+  );
 
 export const SettingsUpdateInput = z.object({
   aiModel: z.string().trim().min(1).max(100).optional(),
   aiAutoAnalyze: z.boolean().optional(),
   defaultLabelTemplate: z.string().optional(),
+  /** New key, or null to remove the stored key. Never returned by the API. */
+  anthropicApiKey: z.string().trim().min(10).max(500).nullable().optional(),
+  /** Custom system prompt, or null to reset to the built-in default. */
+  aiSystemPrompt: z.string().max(20000).nullable().optional(),
+  /** Custom public origin, or null to fall back to the PUBLIC_URL env value. */
+  publicUrl: PublicUrl.nullable().optional(),
 });
 export type SettingsUpdateInput = z.infer<typeof SettingsUpdateInput>;
 

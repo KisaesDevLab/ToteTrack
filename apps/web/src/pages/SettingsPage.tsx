@@ -27,6 +27,7 @@ export function SettingsPage() {
       )}
       <SeriesSection />
       <AiSection />
+      <PublicUrlSection />
       <LabelSection />
       <ExportSection onError={(e) => toast.error(errorMessage(e))} />
       <PinSection />
@@ -172,8 +173,18 @@ function AiSection() {
   const update = useUpdateSettings();
   const toast = useToast();
   const [model, setModel] = useState<string | null>(null);
+  const [keyDraft, setKeyDraft] = useState('');
+  const [prompt, setPrompt] = useState<string | null>(null);
   const s = settings.data;
   if (!s) return null;
+
+  const onErr = (err: unknown) => toast.error(errorMessage(err));
+  const keyStatus =
+    s.aiKeySource === 'env'
+      ? `Using the ANTHROPIC_API_KEY environment variable (${s.aiKeyHint}). It overrides any key entered here.`
+      : s.aiKeySource === 'settings'
+        ? `Key saved in Settings (${s.aiKeyHint}).`
+        : 'No API key configured — AI analysis is off.';
 
   return (
     <Section
@@ -181,9 +192,53 @@ function AiSection() {
       hint={
         s.aiAvailable
           ? 'Photos are sent to the Anthropic API to list contents automatically.'
-          : 'Disabled: set ANTHROPIC_API_KEY on the server to enable.'
+          : 'Add an Anthropic API key below (or set ANTHROPIC_API_KEY on the server) to enable.'
       }
     >
+      <Field label="Anthropic API key" hint={keyStatus}>
+        <div className="flex gap-2">
+          <input
+            className="input flex-1 font-mono text-sm"
+            type="password"
+            autoComplete="off"
+            placeholder={s.aiKeySource === 'settings' ? 'Enter a new key to replace' : 'sk-ant-…'}
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            disabled={s.aiKeySource === 'env'}
+          />
+          <button
+            className="btn-secondary"
+            disabled={s.aiKeySource === 'env' || keyDraft.trim().length < 10 || update.isPending}
+            onClick={() =>
+              update.mutate(
+                { anthropicApiKey: keyDraft.trim() },
+                {
+                  onSuccess: () => {
+                    setKeyDraft('');
+                    toast.success('API key saved');
+                  },
+                  onError: onErr,
+                },
+              )
+            }
+          >
+            Save key
+          </button>
+          {s.aiKeySource === 'settings' && (
+            <button
+              className="btn-danger btn-sm"
+              disabled={update.isPending}
+              onClick={() => {
+                if (window.confirm('Remove the stored API key? AI analysis will stop.'))
+                  update.mutate({ anthropicApiKey: null }, { onError: onErr });
+              }}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </Field>
+
       <label className="flex items-center justify-between gap-3 text-sm">
         <span>
           Analyze photos automatically on upload
@@ -196,27 +251,20 @@ function AiSection() {
           className="h-5 w-5 accent-accent"
           checked={s.aiAutoAnalyze}
           disabled={!s.aiAvailable || update.isPending}
-          onChange={(e) =>
-            update.mutate(
-              { aiAutoAnalyze: e.target.checked },
-              { onError: (err) => toast.error(errorMessage(err)) },
-            )
-          }
+          onChange={(e) => update.mutate({ aiAutoAnalyze: e.target.checked }, { onError: onErr })}
         />
       </label>
+
       <Field label="Model" hint="Any Claude model ID with vision, e.g. claude-sonnet-5.">
         <div className="flex gap-2">
           <input
             className="input flex-1 font-mono text-sm"
             value={model ?? s.aiModel}
             onChange={(e) => setModel(e.target.value)}
-            disabled={!s.aiAvailable}
           />
           <button
             className="btn-secondary"
-            disabled={
-              !s.aiAvailable || model === null || model.trim() === s.aiModel || update.isPending
-            }
+            disabled={model === null || model.trim() === s.aiModel || update.isPending}
             onClick={() =>
               update.mutate(
                 { aiModel: (model ?? '').trim() },
@@ -225,7 +273,7 @@ function AiSection() {
                     setModel(null);
                     toast.success('Model updated');
                   },
-                  onError: (err) => toast.error(errorMessage(err)),
+                  onError: onErr,
                 },
               )
             }
@@ -234,6 +282,135 @@ function AiSection() {
           </button>
         </div>
       </Field>
+
+      <Field
+        label="Instructions sent with each photo"
+        hint={
+          s.aiSystemPromptCustom
+            ? 'Custom prompt in use. The model must still answer with the JSON shape described.'
+            : 'Built-in default. Edit to change tone, grouping rules or level of detail — keep the JSON shape.'
+        }
+      >
+        <textarea
+          className="input min-h-[160px] resize-y font-mono text-xs leading-relaxed"
+          value={prompt ?? s.aiSystemPrompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          spellCheck={false}
+        />
+        <div className="mt-2 flex justify-end gap-2">
+          {(s.aiSystemPromptCustom || prompt !== null) && (
+            <button
+              className="btn-ghost btn-sm"
+              disabled={update.isPending}
+              onClick={() =>
+                update.mutate(
+                  { aiSystemPrompt: null },
+                  {
+                    onSuccess: () => {
+                      setPrompt(null);
+                      toast.success('Prompt reset to default');
+                    },
+                    onError: onErr,
+                  },
+                )
+              }
+            >
+              Reset to default
+            </button>
+          )}
+          <button
+            className="btn-secondary btn-sm"
+            disabled={
+              prompt === null || prompt.trim() === s.aiSystemPrompt.trim() || update.isPending
+            }
+            onClick={() =>
+              update.mutate(
+                { aiSystemPrompt: (prompt ?? '').trim() || null },
+                {
+                  onSuccess: () => {
+                    setPrompt(null);
+                    toast.success('Prompt saved');
+                  },
+                  onError: onErr,
+                },
+              )
+            }
+          >
+            Save prompt
+          </button>
+        </div>
+      </Field>
+    </Section>
+  );
+}
+
+function PublicUrlSection() {
+  const settings = useSettings();
+  const update = useUpdateSettings();
+  const toast = useToast();
+  const [draft, setDraft] = useState<string | null>(null);
+  const s = settings.data;
+  if (!s) return null;
+  const onErr = (err: unknown) => toast.error(errorMessage(err));
+
+  return (
+    <Section
+      title="Public address"
+      hint="The origin printed inside every QR code. Change it here when your Cloudflare hostname changes — no redeploy needed."
+    >
+      <div className="flex gap-2">
+        <input
+          className="input flex-1 font-mono text-sm"
+          inputMode="url"
+          autoCapitalize="none"
+          placeholder="https://totes.example.com"
+          value={draft ?? s.publicUrl}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <button
+          className="btn-secondary"
+          disabled={draft === null || draft.trim() === s.publicUrl || update.isPending}
+          onClick={() =>
+            update.mutate(
+              { publicUrl: draft!.trim() },
+              {
+                onSuccess: () => {
+                  setDraft(null);
+                  toast.success(
+                    'Public address updated — labels printed earlier keep the old link',
+                  );
+                },
+                onError: onErr,
+              },
+            )
+          }
+        >
+          Save
+        </button>
+      </div>
+      <p className="text-xs text-ink-mute">
+        QR codes link to <span className="font-mono">{s.publicUrl}/b/&lt;label&gt;</span>.
+        {s.publicUrlCustom ? (
+          <>
+            {' '}
+            Server default is <span className="font-mono">{s.publicUrlEnv}</span>{' '}
+            <button
+              className="underline"
+              onClick={() =>
+                update.mutate(
+                  { publicUrl: null },
+                  { onSuccess: () => setDraft(null), onError: onErr },
+                )
+              }
+            >
+              use that instead
+            </button>
+            .
+          </>
+        ) : (
+          ' Currently taken from the PUBLIC_URL environment variable.'
+        )}
+      </p>
     </Section>
   );
 }
@@ -262,11 +439,6 @@ function LabelSection() {
           </option>
         ))}
       </select>
-      <p className="text-xs text-ink-mute">
-        QR codes link to{' '}
-        <span className="font-mono">{settings.data.publicUrl}/b/&lt;label&gt;</span> (PUBLIC_URL on
-        the server).
-      </p>
     </Section>
   );
 }
